@@ -1411,6 +1411,7 @@ static int link_enter_join_netdev(Link *link) {
 
         if (!link->network->bridge &&
             !link->network->bond &&
+            !link->network->team &&
             hashmap_isempty(link->network->stacked_netdevs))
                 return link_joined(link);
 
@@ -1456,6 +1457,30 @@ static int link_enter_join_netdev(Link *link) {
 
                 link->enslaving ++;
         }
+
+        if (link->network->team) {
+                log_struct(LOG_DEBUG,
+                           LOG_LINK_INTERFACE(link),
+                           LOG_NETDEV_INTERFACE(link->network->team),
+                           LOG_LINK_MESSAGE(link, "Enslaving by '%s'", link->network->team->ifname),
+                           NULL);
+
+                r = netdev_join(link->network->team, link,
+                                &netdev_join_handler);
+                if (r < 0) {
+                        log_struct_errno(LOG_WARNING, r,
+                                         LOG_LINK_INTERFACE(link),
+                                         LOG_NETDEV_INTERFACE(link->network->team),
+                                         LOG_LINK_MESSAGE(link, "Could not join netdev '%s': %m", link->network->team->ifname),
+                                         NULL);
+
+                        link_enter_failed(link);
+                        return r;
+                }
+
+                link->enslaving++;
+        }
+
 
         HASHMAP_FOREACH(netdev, link->network->stacked_netdevs, i) {
 

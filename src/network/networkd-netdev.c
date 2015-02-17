@@ -49,6 +49,7 @@ const NetDevVTable * const netdev_vtable[_NETDEV_KIND_MAX] = {
         [NETDEV_KIND_TUN] = &tun_vtable,
         [NETDEV_KIND_TAP] = &tap_vtable,
         [NETDEV_KIND_IP6TNL] = &ip6tnl_vtable,
+        [NETDEV_KIND_TEAM] = &team_vtable,
 };
 
 static const char* const netdev_kind_table[_NETDEV_KIND_MAX] = {
@@ -71,6 +72,7 @@ static const char* const netdev_kind_table[_NETDEV_KIND_MAX] = {
         [NETDEV_KIND_TUN] = "tun",
         [NETDEV_KIND_TAP] = "tap",
         [NETDEV_KIND_IP6TNL] = "ip6tnl",
+        [NETDEV_KIND_TEAM] = "team",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(netdev_kind, NetDevKind);
@@ -175,7 +177,7 @@ int netdev_get(Manager *manager, const char *name, NetDev **ret) {
         return 0;
 }
 
-static int netdev_enter_failed(NetDev *netdev) {
+int netdev_enter_failed(NetDev *netdev) {
         netdev->state = NETDEV_STATE_FAILED;
 
         netdev_cancel_callbacks(netdev);
@@ -191,7 +193,7 @@ static int netdev_enslave_ready(NetDev *netdev, Link* link, sd_netlink_message_h
         assert(netdev->state == NETDEV_STATE_READY);
         assert(netdev->manager);
         assert(netdev->manager->rtnl);
-        assert(IN_SET(netdev->kind, NETDEV_KIND_BRIDGE, NETDEV_KIND_BOND));
+        assert(IN_SET(netdev->kind, NETDEV_KIND_BRIDGE, NETDEV_KIND_BOND, NETDEV_KIND_TEAM));
         assert(link);
         assert(callback);
 
@@ -214,7 +216,7 @@ static int netdev_enslave_ready(NetDev *netdev, Link* link, sd_netlink_message_h
         return 0;
 }
 
-static int netdev_enter_ready(NetDev *netdev) {
+int netdev_enter_ready(NetDev *netdev) {
         netdev_join_callback *callback, *callback_next;
         int r;
 
@@ -262,6 +264,9 @@ static int netdev_create_handler(sd_netlink *rtnl, sd_netlink_message *m, void *
 
         log_netdev_debug(netdev, "Created");
 
+        if (NETDEV_VTABLE(netdev)->post_create)
+                NETDEV_VTABLE(netdev)->post_create(netdev, NULL, m);
+
         return 1;
 }
 
@@ -271,7 +276,7 @@ int netdev_enslave(NetDev *netdev, Link *link, sd_netlink_message_handler_t call
         assert(netdev);
         assert(netdev->manager);
         assert(netdev->manager->rtnl);
-        assert(IN_SET(netdev->kind, NETDEV_KIND_BRIDGE, NETDEV_KIND_BOND));
+        assert(IN_SET(netdev->kind, NETDEV_KIND_BRIDGE, NETDEV_KIND_BOND, NETDEV_KIND_TEAM));
 
         if (netdev->state == NETDEV_STATE_READY) {
                 r = netdev_enslave_ready(netdev, link, callback);
@@ -390,7 +395,9 @@ int netdev_set_ifindex(NetDev *netdev, sd_netlink_message *message) {
 
         log_netdev_debug(netdev, "netdev has index %d", netdev->ifindex);
 
-        netdev_enter_ready(netdev);
+        if (netdev->kind != NETDEV_KIND_TEAM)
+                /* Team devices are ready once instance of teamd daemon was started */
+                netdev_enter_ready(netdev);
 
         return 0;
 }

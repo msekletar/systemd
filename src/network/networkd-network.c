@@ -219,6 +219,8 @@ void network_free(Network *network) {
 
         netdev_unref(network->bond);
 
+        netdev_unref(network->team);
+
         HASHMAP_FOREACH(netdev, network->stacked_netdevs, i) {
                 hashmap_remove(network->stacked_netdevs, netdev->ifname);
                 netdev_unref(netdev);
@@ -419,6 +421,10 @@ int config_parse_netdev(const char *unit,
                 break;
         case NETDEV_KIND_BOND:
                 network->bond = netdev;
+
+                break;
+        case NETDEV_KIND_TEAM:
+                network->team = netdev;
 
                 break;
         case NETDEV_KIND_VLAN:

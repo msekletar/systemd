@@ -129,6 +129,7 @@ struct Network {
         char *description;
         NetDev *bridge;
         NetDev *bond;
+        NetDev *team;
         Hashmap *stacked_netdevs;
         AddressFamilyBoolean dhcp;
         DCHPClientIdentifier dhcp_client_identifier;
@@ -234,6 +235,7 @@ struct Manager {
         sd_event_source *bus_retry_event_source;
         sd_bus *bus;
         sd_bus_slot *prepare_for_sleep_slot;
+        sd_bus_slot *dbus_job_removed_slot;
         struct udev *udev;
         struct udev_monitor *udev_monitor;
         sd_event_source *udev_event_source;
@@ -246,6 +248,7 @@ struct Manager {
         Hashmap *links;
         Hashmap *netdevs;
         Hashmap *networks_by_name;
+        Hashmap *netdev_by_job_path;
         LIST_HEAD(Network, networks);
         LIST_HEAD(AddressPool, address_pools);
 

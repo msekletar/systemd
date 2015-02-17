@@ -36,6 +36,7 @@
 
 #include "sd-netlink.h"
 #include "sd-daemon.h"
+#include "bus-error.h"
 
 /* use 8 MB for receive socket kernel queue. */
 #define RCVBUF_SIZE    (8*1024*1024)
@@ -127,8 +128,45 @@ static int match_prepare_for_sleep(sd_bus_message *message, void *userdata, sd_b
         return 0;
 }
 
+static int match_job_removed(sd_bus_message *message, void *userdata, sd_bus_error *ret_error) {
+        Manager *m = userdata;
+        const char *id, *path, *result, *unit;
+        Team *team;
+        int r;
+
+        assert(message);
+        assert(m);
+
+        r = sd_bus_message_read(message, "uoss", &id, &path, &unit, &result);
+        if (r < 0) {
+                bus_log_parse_error(r);
+                return r;
+        }
+
+        team = hashmap_get(m->netdev_by_job_path, path);
+        if (!team)
+                return 0;
+
+        if (!streq(result, "done"))
+                return netdev_enter_failed(NETDEV(team));
+
+        hashmap_remove(m->netdev_by_job_path, path);
+
+        netdev_unref(NETDEV(team));
+        free(team->teamd_bus_job);
+        team->teamd_bus_job = NULL;
+
+
+        team->teamd_instance = strdup(unit);
+        if (!team->teamd_instance)
+                return -ENOMEM;
+
+        return netdev_enter_ready(NETDEV(team));
+}
+
 int manager_connect_bus(Manager *m) {
         int r;
+        _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
 
         assert(m);
 
@@ -147,17 +185,6 @@ int manager_connect_bus(Manager *m) {
                 return 0;
         } if (r < 0)
                 return r;
-
-        r = sd_bus_add_match(m->bus, &m->prepare_for_sleep_slot,
-                             "type='signal',"
-                             "sender='org.freedesktop.login1',"
-                             "interface='org.freedesktop.login1.Manager',"
-                             "member='PrepareForSleep',"
-                             "path='/org/freedesktop/login1'",
-                             match_prepare_for_sleep,
-                             m);
-        if (r < 0)
-                return log_error_errno(r, "Failed to add match for PrepareForSleep: %m");
 
         r = sd_bus_add_object_vtable(m->bus, NULL, "/org/freedesktop/network1", "org.freedesktop.network1.Manager", manager_vtable, m);
         if (r < 0)
@@ -179,6 +206,43 @@ int manager_connect_bus(Manager *m) {
         if (r < 0)
                 return log_error_errno(r, "Failed to add network enumerator: %m");
 
+        r = sd_bus_add_match(m->bus, &m->prepare_for_sleep_slot,
+                             "type='signal',"
+                             "sender='org.freedesktop.login1',"
+                             "interface='org.freedesktop.login1.Manager',"
+                             "member='PrepareForSleep',"
+                             "path='/org/freedesktop/login1'",
+                             match_prepare_for_sleep,
+                             m);
+        if (r < 0)
+                return log_error_errno(r, "Failed to add match for PrepareForSleep: %m");
+
+
+        r = sd_bus_add_match(m->bus, &m->dbus_job_removed_slot,
+                             "type='signal',"
+                             "sender='org.freedesktop.systemd1',"
+                             "interface='org.freedesktop.systemd1.Manager',"
+                             "member='JobRemoved',"
+                             "path='/org/freedesktop/systemd1'",
+                             match_job_removed,
+                             m);
+        if (r < 0)
+                return log_error_errno(r, "Failed to add match for JobRemoved: %m");
+
+        r = sd_bus_call_method(
+                        m->bus,
+                        "org.freedesktop.systemd1",
+                        "/org/freedesktop/systemd1",
+                        "org.freedesktop.systemd1.Manager",
+                        "Subscribe",
+                        &error,
+                        NULL, NULL);
+
+        if (r < 0) {
+                log_error("Failed to enable subscription: %s", bus_error_message(&error, r));
+                return r;
+        }
+
         r = sd_bus_request_name(m->bus, "org.freedesktop.network1", 0);
         if (r < 0)
                 return log_error_errno(r, "Failed to register name: %m");
@@ -186,6 +250,7 @@ int manager_connect_bus(Manager *m) {
         r = sd_bus_attach_event(m->bus, m->event, 0);
         if (r < 0)
                 return log_error_errno(r, "Failed to attach bus to event loop: %m");
+
 
         return 0;
 }
@@ -478,6 +543,7 @@ void manager_free(Manager *m) {
         udev_unref(m->udev);
         sd_bus_unref(m->bus);
         sd_bus_slot_unref(m->prepare_for_sleep_slot);
+        sd_bus_slot_unref(m->dbus_job_removed_slot);
         sd_event_source_unref(m->udev_event_source);
         sd_event_source_unref(m->bus_retry_event_source);
         sd_event_unref(m->event);
@@ -494,6 +560,10 @@ void manager_free(Manager *m) {
         while ((netdev = hashmap_first(m->netdevs)))
                 netdev_unref(netdev);
         hashmap_free(m->netdevs);
+
+        while ((netdev = hashmap_first(m->netdev_by_job_path)))
+                netdev_unref(netdev);
+        hashmap_free(m->netdev_by_job_path);
 
         while ((pool = m->address_pools))
                 address_pool_free(pool);

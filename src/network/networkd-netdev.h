@@ -55,6 +55,7 @@ typedef enum NetDevKind {
         NETDEV_KIND_DUMMY,
         NETDEV_KIND_TUN,
         NETDEV_KIND_TAP,
+        NETDEV_KIND_TEAM,
         _NETDEV_KIND_MAX,
         _NETDEV_KIND_INVALID = -1
 } NetDevKind;
@@ -109,6 +110,7 @@ struct NetDev {
 #include "networkd-netdev-tunnel.h"
 #include "networkd-netdev-dummy.h"
 #include "networkd-netdev-tuntap.h"
+#include "networkd-netdev-team.h"
 
 struct NetDevVTable {
         /* How much memory does an object of this unit type need */
@@ -130,6 +132,9 @@ struct NetDevVTable {
 
         /* fill in message to create netdev */
         int (*fill_message_create)(NetDev *netdev, Link *link, sd_netlink_message *message);
+
+        /* perform aditional configuration after netdev has been createad */
+        int (*post_create)(NetDev *netdev, Link *link, sd_netlink_message *message);
 
         /* specifies if netdev is independent, or a master device or a stacked device */
         NetDevCreateType create_type;
@@ -176,6 +181,7 @@ DEFINE_CAST(VETH, Veth);
 DEFINE_CAST(DUMMY, Dummy);
 DEFINE_CAST(TUN, TunTap);
 DEFINE_CAST(TAP, TunTap);
+DEFINE_CAST(TEAM, Team);
 
 int netdev_load(Manager *manager);
 void netdev_drop(NetDev *netdev);
@@ -189,6 +195,8 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(NetDev*, netdev_unref);
 int netdev_get(Manager *manager, const char *name, NetDev **ret);
 int netdev_set_ifindex(NetDev *netdev, sd_netlink_message *newlink);
 int netdev_enslave(NetDev *netdev, Link *link, sd_netlink_message_handler_t callback);
+int netdev_enter_failed(NetDev *netdev);
+int netdev_enter_ready(NetDev *netdev);
 int netdev_get_mac(const char *ifname, struct ether_addr **ret);
 int netdev_join(NetDev *netdev, Link *link, sd_netlink_message_handler_t cb);
 

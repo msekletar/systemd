@@ -5291,7 +5291,10 @@ libnetworkd_core_la_SOURCES = \
 	src/network/networkd-manager.c \
 	src/network/networkd-manager-bus.c \
 	src/network/networkd-fdb.c \
-	src/network/networkd-address-pool.c
+	src/network/networkd-address-pool.c \
+	src/network/networkd-netdev-team.c \
+	src/network/networkd-netdev-team.h
+
 
 nodist_libnetworkd_core_la_SOURCES = \
 	src/network/networkd-network-gperf.c \

@@ -249,6 +249,7 @@ static const char* const nl_union_link_info_data_table[_NL_UNION_LINK_INFO_DATA_
         [NL_UNION_LINK_INFO_DATA_VTI_TUNNEL] = "vti",
         [NL_UNION_LINK_INFO_DATA_VTI6_TUNNEL] = "vti6",
         [NL_UNION_LINK_INFO_DATA_IP6TNL_TUNNEL] = "ip6tnl",
+        [NL_UNION_LINK_INFO_DATA_TEAM] = "team",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(nl_union_link_info_data, NLUnionLinkInfoData);
@@ -286,6 +287,8 @@ static const NLTypeSystem rtnl_link_info_data_type_systems[_NL_UNION_LINK_INFO_D
                                                   .types = rtnl_link_info_data_ipvti_types },
         [NL_UNION_LINK_INFO_DATA_IP6TNL_TUNNEL] =  { .count = ELEMENTSOF(rtnl_link_info_data_ip6tnl_types),
                                                      .types = rtnl_link_info_data_ip6tnl_types },
+        [NL_UNION_LINK_INFO_DATA_TEAM] = { .types = NULL,
+                                           .count = 0 },
 
 };
 
