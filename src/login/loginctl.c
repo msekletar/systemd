@@ -632,6 +632,36 @@ static int print_user_status_info(sd_bus *bus, const char *path, bool *new_line)
         return 0;
 }
 
+static int print_user_sessions(sd_bus *bus, const char *path) {
+        static const struct bus_properties_map map[]  = {
+                { "Sessions",           "a(so)", prop_map_sessions_strv,   offsetof(UserStatusInfo, sessions) },
+                {}
+        };
+
+        _cleanup_(user_status_info_clear) UserStatusInfo i = {};
+        int r;
+
+        r = bus_map_all_properties(bus, "org.freedesktop.login1", path, map, &i);
+        if (r < 0)
+                return log_error_errno(r, "Could not get properties: %m");
+
+        if (!strv_isempty(i.sessions)) {
+                char **l;
+                printf("Sessions=");
+
+                STRV_FOREACH(l, i.sessions) {
+                        if (streq_ptr(*l, i.display))
+                                printf("*%s ", *l);
+                        else
+                                printf("%s ", *l);
+                }
+
+                printf("\n");
+        }
+
+        return 0;
+}
+
 static int print_seat_status_info(sd_bus *bus, const char *path, bool *new_line) {
 
         static const struct bus_properties_map map[]  = {
@@ -805,9 +835,14 @@ static int show_user(int argc, char *argv[], void *userdata) {
                 if (r < 0)
                         return bus_log_parse_error(r);
 
-                if (properties)
+                if (properties) {
                         r = show_properties(bus, path, &new_line);
-                else
+                        if (r < 0)
+                                return r;
+                        r  = print_user_sessions(bus, path);
+                        if (r < 0)
+                                return r;
+                } else
                         r = print_user_status_info(bus, path, &new_line);
 
                 if (r < 0)
