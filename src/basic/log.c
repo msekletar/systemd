@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include <execinfo.h>
 
 #include "sd-messages.h"
 
@@ -485,7 +486,13 @@ static int log_do_header(
                 int level,
                 int error,
                 const char *file, int line, const char *func,
-                const char *object_field, const char *object) {
+                const char *object_field, const char *object, uint32_t transaction_id) {
+
+        if (transaction_id != 0) {
+                static int c = 0;
+
+                c++;
+        }
 
         snprintf(header, size,
                  "PRIORITY=%i\n"
@@ -495,6 +502,7 @@ static int log_do_header(
                  "%s%s%s"
                  "%s%.*i%s"
                  "%s%s%s"
+                 "%s%.*u%s"
                  "SYSLOG_IDENTIFIER=%s\n",
                  LOG_PRI(level),
                  LOG_FAC(level),
@@ -513,6 +521,9 @@ static int log_do_header(
                  isempty(object) ? "" : object_field,
                  isempty(object) ? "" : object,
                  isempty(object) ? "" : "\n",
+                 transaction_id ? "TRANSACTION=" : "",
+                 transaction_id ? 1 : 0, transaction_id,
+                 transaction_id ? "\n" : "",
                  program_invocation_short_name);
 
         return 0;
@@ -526,6 +537,7 @@ static int write_to_journal(
                 const char *func,
                 const char *object_field,
                 const char *object,
+                uint32_t transaction_id,
                 const char *buffer) {
 
         char header[LINE_MAX];
@@ -535,7 +547,7 @@ static int write_to_journal(
         if (journal_fd < 0)
                 return 0;
 
-        log_do_header(header, sizeof(header), level, error, file, line, func, object_field, object);
+        log_do_header(header, sizeof(header), level, error, file, line, func, object_field, object, transaction_id);
 
         IOVEC_SET_STRING(iovec[0], header);
         IOVEC_SET_STRING(iovec[1], "MESSAGE=");
@@ -559,6 +571,7 @@ static int log_dispatch(
                 const char *func,
                 const char *object_field,
                 const char *object,
+                uint32_t transaction_id,
                 char *buffer) {
 
         assert(buffer);
@@ -589,7 +602,7 @@ static int log_dispatch(
                     log_target == LOG_TARGET_JOURNAL_OR_KMSG ||
                     log_target == LOG_TARGET_JOURNAL) {
 
-                        k = write_to_journal(level, error, file, line, func, object_field, object, buffer);
+                        k = write_to_journal(level, error, file, line, func, object_field, object, transaction_id, buffer);
                         if (k < 0) {
                                 if (k != -EAGAIN)
                                         log_close_journal();
@@ -649,7 +662,7 @@ int log_dump_internal(
         if (_likely_(LOG_PRI(level) > log_max_level))
                 return -error;
 
-        return log_dispatch(level, error, file, line, func, NULL, NULL, buffer);
+        return log_dispatch(level, error, file, line, func, NULL, NULL, 0, buffer);
 }
 
 int log_internalv(
@@ -676,7 +689,7 @@ int log_internalv(
 
         vsnprintf(buffer, sizeof(buffer), format, ap);
 
-        return log_dispatch(level, error, file, line, func, NULL, NULL, buffer);
+        return log_dispatch(level, error, file, line, func, NULL, NULL, 0, buffer);
 }
 
 int log_internal(
@@ -705,6 +718,7 @@ int log_object_internalv(
                 const char *func,
                 const char *object_field,
                 const char *object,
+                uint32_t transaction_id,
                 const char *format,
                 va_list ap) {
 
@@ -738,7 +752,7 @@ int log_object_internalv(
 
         vsnprintf(b, l, format, ap);
 
-        return log_dispatch(level, error, file, line, func, object_field, object, buffer);
+        return log_dispatch(level, error, file, line, func, object_field, object, transaction_id, buffer);
 }
 
 int log_object_internal(
@@ -749,13 +763,14 @@ int log_object_internal(
                 const char *func,
                 const char *object_field,
                 const char *object,
+                uint32_t transaction_id,
                 const char *format, ...) {
 
         va_list ap;
         int r;
 
         va_start(ap, format);
-        r = log_object_internalv(level, error, file, line, func, object_field, object, format, ap);
+        r = log_object_internalv(level, error, file, line, func, object_field, object, transaction_id, format, ap);
         va_end(ap);
 
         return r;
@@ -780,7 +795,7 @@ static void log_assert(
 
         log_abort_msg = buffer;
 
-        log_dispatch(level, 0, file, line, func, NULL, NULL, buffer);
+        log_dispatch(level, 0, file, line, func, NULL, NULL, 0, buffer);
 }
 
 noreturn void log_assert_failed(const char *text, const char *file, int line, const char *func) {
@@ -888,7 +903,7 @@ int log_struct_internal(
                 bool fallback = false;
 
                 /* If the journal is available do structured logging */
-                log_do_header(header, sizeof(header), level, error, file, line, func, NULL, NULL);
+                log_do_header(header, sizeof(header), level, error, file, line, func, NULL, NULL, 0);
                 IOVEC_SET_STRING(iovec[n++], header);
 
                 va_start(ap, format);
@@ -935,7 +950,7 @@ int log_struct_internal(
         if (!found)
                 return -error;
 
-        return log_dispatch(level, error, file, line, func, NULL, NULL, buf + 8);
+        return log_dispatch(level, error, file, line, func, NULL, NULL, 0, buf + 8);
 }
 
 int log_set_target_from_string(const char *e) {

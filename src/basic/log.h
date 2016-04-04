@@ -100,7 +100,8 @@ int log_object_internal(
                 const char *func,
                 const char *object_field,
                 const char *object,
-                const char *format, ...) _printf_(8,9);
+                uint32_t transaction_id,
+                const char *format, ...) _printf_(9,10);
 
 int log_object_internalv(
                 int level,
@@ -110,8 +111,9 @@ int log_object_internalv(
                 const char *func,
                 const char *object_field,
                 const char *object,
+                uint32_t transaction_id,
                 const char *format,
-                va_list ap) _printf_(8,0);
+                va_list ap) _printf_(9,0);
 
 int log_struct_internal(
                 int level,

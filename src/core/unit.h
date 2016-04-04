@@ -610,7 +610,8 @@ int unit_fail_if_symlink(Unit *u, const char* where);
 #define log_unit_full(unit, level, error, ...)                          \
         ({                                                              \
                 Unit *_u = (unit);                                      \
-                _u ? log_object_internal(level, error, __FILE__, __LINE__, __func__, _u->manager->unit_log_field, _u->id, ##__VA_ARGS__) : \
+                uint32_t _id = _u ? _u->job ? _u->job->transaction_id : 0 : 0; \
+                _u ? log_object_internal(level, error, __FILE__, __LINE__, __func__, _u->manager->unit_log_field, _u->id, _id, ##__VA_ARGS__) : \
                         log_internal(level, error, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
         })
 

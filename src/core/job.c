@@ -59,7 +59,7 @@ Job* job_new_raw(Unit *unit) {
         return j;
 }
 
-Job* job_new(Unit *unit, JobType type) {
+Job* job_new(Unit *unit, JobType type, uint32_t transaction_id) {
         Job *j;
 
         assert(type < _JOB_TYPE_MAX);
@@ -69,6 +69,7 @@ Job* job_new(Unit *unit, JobType type) {
                 return NULL;
 
         j->id = j->manager->current_job_id++;
+        j->transaction_id = transaction_id;
         j->type = type;
 
         /* We don't link it here, that's what job_dependency() is for */

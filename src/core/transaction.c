@@ -771,7 +771,7 @@ static Job* transaction_add_one_job(Transaction *tr, JobType type, Unit *unit, b
                 }
         }
 
-        j = job_new(unit, type);
+        j = job_new(unit, type, tr->id);
         if (!j)
                 return NULL;
 
@@ -1074,7 +1074,7 @@ int transaction_add_isolate_jobs(Transaction *tr, Manager *m) {
         return 0;
 }
 
-Transaction *transaction_new(bool irreversible) {
+Transaction *transaction_new(bool irreversible, uint32_t id) {
         Transaction *tr;
 
         tr = new0(Transaction, 1);
@@ -1088,6 +1088,7 @@ Transaction *transaction_new(bool irreversible) {
         }
 
         tr->irreversible = irreversible;
+        tr->id = id;
 
         return tr;
 }

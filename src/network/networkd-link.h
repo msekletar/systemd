@@ -180,7 +180,7 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(Link*, link_unref);
 #define log_link_full(link, level, error, ...)                          \
         ({                                                              \
                 Link *_l = (link);                                      \
-                _l ? log_object_internal(level, error, __FILE__, __LINE__, __func__, "INTERFACE=", _l->ifname, ##__VA_ARGS__) : \
+                _l ? log_object_internal(level, error, __FILE__, __LINE__, __func__, "INTERFACE=", _l->ifname, 0, ##__VA_ARGS__) : \
                         log_internal(level, error, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
         })                                                              \
 

@@ -591,6 +591,7 @@ int manager_new(ManagerRunningAs running_as, bool test_run, Manager **_m) {
                 m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = m->cgroup_inotify_fd = -1;
 
         m->current_job_id = 1; /* start as id #1, so that we can leave #0 around as "null-like" value */
+        m->current_transaction_id = 1;
 
         m->ask_password_inotify_fd = -1;
         m->have_ask_password = -EINVAL; /* we don't know */
@@ -1201,7 +1202,7 @@ int manager_add_job(Manager *m, JobType type, Unit *unit, JobMode mode, sd_bus_e
 
         type = job_type_collapse(type, unit);
 
-        tr = transaction_new(mode == JOB_REPLACE_IRREVERSIBLY);
+        tr = transaction_new(mode == JOB_REPLACE_IRREVERSIBLY, m->current_transaction_id++);
         if (!tr)
                 return -ENOMEM;
 

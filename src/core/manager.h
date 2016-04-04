@@ -205,6 +205,7 @@ struct Manager {
 
         uint32_t current_job_id;
         uint32_t default_unit_job_id;
+        uint32_t current_transaction_id;
 
         /* Data specific to the Automount subsystem */
         int dev_autofs_fd;

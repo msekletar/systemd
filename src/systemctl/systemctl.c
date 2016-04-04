@@ -715,6 +715,34 @@ static int get_triggered_units(
         return 0;
 }
 
+static int get_transaction_id(
+                sd_bus *bus,
+                const char *job_path,
+                uint32_t *transaction_id) {
+
+        _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+        _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
+        int r;
+        uint32_t id;
+
+        r = sd_bus_get_property_trivial(
+                        bus,
+                        "org.freedesktop.systemd1",
+                        job_path,
+                        "org.freedesktop.systemd1.Job",
+                        "TransactionId",
+                        &error,
+                        'u',
+                        &id);
+
+        if (r < 0)
+                return log_error_errno(r, "Failed to get transaction id: %s", bus_error_message(&error, r));
+
+        *transaction_id = id;
+
+        return 0;
+}
+
 static int get_listening(
                 sd_bus *bus,
                 const char* unit_path,
@@ -2585,7 +2613,9 @@ static int start_unit_one(
                 const char *name,
                 const char *mode,
                 sd_bus_error *error,
-                BusWaitForJobs *w) {
+                BusWaitForJobs *w,
+                uint32_t **ids,
+                size_t *n_ids) {
 
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
         const char *path;
@@ -2637,7 +2667,15 @@ static int start_unit_one(
                 warn_unit_file_changed(name);
 
         if (w) {
+                uint32_t id;
+
                 log_debug("Adding %s to the set", path);
+
+                get_transaction_id(bus, &id);
+                if (id > 0)
+
+
+
                 r = bus_wait_for_jobs_add(w, path);
                 if (r < 0)
                         return log_oom();
@@ -2743,6 +2781,8 @@ static int start_unit(int argc, char *argv[], void *userdata) {
         sd_bus *bus;
         char **name;
         int r = 0;
+        uint32_t *ids;
+        size_t n_ids;
 
         ask_password_agent_open_if_enabled();
         polkit_agent_open_if_enabled();
@@ -2792,7 +2832,7 @@ static int start_unit(int argc, char *argv[], void *userdata) {
                 _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
                 int q;
 
-                q = start_unit_one(bus, method, *name, mode, &error, w);
+                q = start_unit_one(bus, method, *name, mode, &error, w, &ids, &n_ids);
                 if (r >= 0 && q < 0)
                         r = translate_bus_error_to_exit_status(q, &error);
         }

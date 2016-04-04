@@ -31,9 +31,10 @@ struct Transaction {
         Hashmap *jobs;      /* Unit object => Job object list 1:1 */
         Job *anchor_job;      /* the job the user asked for */
         bool irreversible;
+        uint32_t id;
 };
 
-Transaction *transaction_new(bool irreversible);
+Transaction *transaction_new(bool irreversible, uint32_t id);
 void transaction_free(Transaction *tr);
 
 int transaction_add_job_and_dependencies(

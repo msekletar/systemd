@@ -142,6 +142,7 @@ struct Job {
         unsigned generation;
 
         uint32_t id;
+        uint32_t transaction_id;
 
         JobType type;
         JobState state;
@@ -170,7 +171,7 @@ struct Job {
         bool irreversible:1;
 };
 
-Job* job_new(Unit *unit, JobType type);
+Job* job_new(Unit *unit, JobType type, uint32_t transaction_id);
 Job* job_new_raw(Unit *unit);
 void job_free(Job *job);
 Job* job_install(Job *j);
