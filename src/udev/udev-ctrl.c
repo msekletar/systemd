@@ -27,6 +27,8 @@
 /* wire protocol magic must match */
 #define UDEV_CTRL_MAGIC                                0xdead1dea
 
+unsigned arg_children_max;
+
 enum udev_ctrl_msg_type {
         UDEV_CTRL_UNKNOWN,
         UDEV_CTRL_SET_LOG_LEVEL,
@@ -35,6 +37,7 @@ enum udev_ctrl_msg_type {
         UDEV_CTRL_RELOAD,
         UDEV_CTRL_SET_ENV,
         UDEV_CTRL_SET_CHILDREN_MAX,
+        UDEV_CTRL_GET_CHILDREN_MAX,
         UDEV_CTRL_PING,
         UDEV_CTRL_EXIT,
 };
@@ -313,6 +316,10 @@ int udev_ctrl_send_set_children_max(struct udev_ctrl *uctrl, int count, int time
         return ctrl_send(uctrl, UDEV_CTRL_SET_CHILDREN_MAX, count, NULL, timeout);
 }
 
+int udev_ctrl_send_get_children_max(struct udev_ctrl *uctrl, int timeout) {
+        return ctrl_send(uctrl, UDEV_CTRL_GET_CHILDREN_MAX, 0, NULL, timeout);
+}
+
 int udev_ctrl_send_ping(struct udev_ctrl *uctrl, int timeout) {
         return ctrl_send(uctrl, UDEV_CTRL_PING, 0, NULL, timeout);
 }
@@ -446,6 +453,12 @@ const char *udev_ctrl_get_set_env(struct udev_ctrl_msg *ctrl_msg) {
 int udev_ctrl_get_set_children_max(struct udev_ctrl_msg *ctrl_msg) {
         if (ctrl_msg->ctrl_msg_wire.type == UDEV_CTRL_SET_CHILDREN_MAX)
                 return ctrl_msg->ctrl_msg_wire.intval;
+        return -1;
+}
+
+int udev_ctrl_get_get_children_max(struct udev_ctrl_msg *ctrl_msg) {
+        if (ctrl_msg->ctrl_msg_wire.type == UDEV_CTRL_GET_CHILDREN_MAX)
+                return arg_children_max;
         return -1;
 }
 

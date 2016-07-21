@@ -54,6 +54,7 @@ static int adm_control(struct udev *udev, int argc, char *argv[]) {
                 { "property",         required_argument, NULL, 'p' },
                 { "env",              required_argument, NULL, 'p' }, /* alias for -p */
                 { "children-max",     required_argument, NULL, 'm' },
+                { "get-children-max", no_argument,       NULL, 'c' },
                 { "timeout",          required_argument, NULL, 't' },
                 { "help",             no_argument,       NULL, 'h' },
                 {}
@@ -146,6 +147,12 @@ static int adm_control(struct udev *udev, int argc, char *argv[]) {
                 case 'h':
                         print_help();
                         rc = 0;
+                        break;
+                case 'c':
+                        if (udev_ctrl_send_get_children_max(uctrl, timeout) < 0)
+                                rc = 2;
+                        else
+                                rc = 0;
                         break;
                 }
 
