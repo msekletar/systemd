@@ -775,9 +775,9 @@ static void manager_reload(Manager *manager) {
         manager->rules = udev_rules_unref(manager->rules);
         udev_builtin_exit(manager->udev);
 
-        sd_notify(false,
-                  "READY=1\n"
-                  "STATUS=Processing...");
+        (void) sd_notifyf(false,
+                          "READY=1\n"
+                          "STATUS=Processing, with %u children at max", arg_children_max);
 }
 
 static void event_queue_start(Manager *manager) {
@@ -999,6 +999,10 @@ static int on_ctrl_msg(sd_event_source *s, int fd, uint32_t revents, void *userd
         if (i >= 0) {
                 log_debug("udevd message (SET_MAX_CHILDREN) received, children_max=%i", i);
                 arg_children_max = i;
+
+                (void) sd_notifyf(false,
+                                  "READY=1\n"
+                                  "STATUS=Processing, with %u children at max", arg_children_max);
         }
 
         i = udev_ctrl_get_get_children_max(ctrl_msg);
@@ -1630,9 +1634,9 @@ static int run(int fd_ctrl, int fd_uevent, const char *cgroup) {
         if (r < 0)
                 log_error_errno(r, "failed to apply permissions on static device nodes: %m");
 
-        (void) sd_notify(false,
-                         "READY=1\n"
-                         "STATUS=Processing...");
+        (void) sd_notifyf(false,
+                          "READY=1\n"
+                          "STATUS=Processing, with %u children at max", arg_children_max);
 
         r = sd_event_loop(manager->event);
         if (r < 0) {
