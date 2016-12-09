@@ -93,6 +93,7 @@ void server_process_native_message(
         int priority = LOG_INFO;
         char *identifier = NULL, *message = NULL;
         pid_t object_pid = 0;
+        size_t message_len = 0;
 
         assert(s);
         assert(buffer || buffer_size == 0);
@@ -198,6 +199,7 @@ void server_process_native_message(
                                         if (t) {
                                                 free(message);
                                                 message = t;
+                                                message_len = l - 8 + 1;
                                         }
 
                                 } else if (l > strlen("OBJECT_PID=") &&
@@ -278,7 +280,7 @@ void server_process_native_message(
 
         if (message) {
                 if (s->forward_to_syslog)
-                        server_forward_syslog(s, priority, identifier, message, ucred, tv);
+                        server_forward_syslog(s, priority, identifier, message, message_len, ucred, tv);
 
                 if (s->forward_to_kmsg)
                         server_forward_kmsg(s, priority, identifier, message, ucred);

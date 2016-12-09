@@ -115,7 +115,7 @@ static void forward_syslog_iovec(Server *s, const struct iovec *iovec, unsigned 
                 log_debug_errno(errno, "Failed to forward syslog message: %m");
 }
 
-static void forward_syslog_raw(Server *s, int priority, const char *buffer, const struct ucred *ucred, const struct timeval *tv) {
+static void forward_syslog_raw(Server *s, int priority, const char *buffer, size_t buffer_len, const struct ucred *ucred, const struct timeval *tv) {
         struct iovec iovec;
 
         assert(s);
@@ -124,11 +124,13 @@ static void forward_syslog_raw(Server *s, int priority, const char *buffer, cons
         if (LOG_PRI(priority) > s->max_level_syslog)
                 return;
 
-        IOVEC_SET_STRING(iovec, buffer);
+        iovec.iov_base = (char *) buffer;
+        iovec.iov_len = buffer_len;
+
         forward_syslog_iovec(s, &iovec, 1, ucred, tv);
 }
 
-void server_forward_syslog(Server *s, int priority, const char *identifier, const char *message, const struct ucred *ucred, const struct timeval *tv) {
+void server_forward_syslog(Server *s, int priority, const char *identifier, const char *message, size_t message_len, const struct ucred *ucred, const struct timeval *tv) {
         struct iovec iovec[5];
         char header_priority[DECIMAL_STR_MAX(priority) + 3], header_time[64],
              header_pid[sizeof("[]: ")-1 + DECIMAL_STR_MAX(pid_t) + 1];
@@ -177,7 +179,9 @@ void server_forward_syslog(Server *s, int priority, const char *identifier, cons
         }
 
         /* Fourth: message */
-        IOVEC_SET_STRING(iovec[n++], message);
+        iovec[n].iov_base = message;
+        iovec[n].iov_len = message_len;
+        n++;
 
         forward_syslog_iovec(s, iovec, n, ucred, tv);
 
@@ -316,7 +320,8 @@ static void syslog_skip_date(char **buf) {
 
 void server_process_syslog_message(
                 Server *s,
-                const char *buf,
+                char *buf,
+                size_t buf_len,
                 const struct ucred *ucred,
                 const struct timeval *tv,
                 const char *label,
@@ -335,13 +340,17 @@ void server_process_syslog_message(
         assert(buf);
 
         orig = buf;
-        syslog_parse_priority(&buf, &priority, true);
+        buf += strspn(buf, WHITESPACE);
+
+        syslog_parse_priority((const char **) &buf, &priority, true);
 
         if (s->forward_to_syslog)
-                forward_syslog_raw(s, priority, orig, ucred, tv);
+                forward_syslog_raw(s, priority, orig, buf_len, ucred, tv);
+
+        strstrip(buf);
 
         syslog_skip_date((char**) &buf);
-        syslog_parse_identifier(&buf, &identifier, &pid);
+        syslog_parse_identifier((const char **) &buf, &identifier, &pid);
 
         if (s->forward_to_kmsg)
                 server_forward_kmsg(s, priority, identifier, buf, ucred);
