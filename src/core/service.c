@@ -45,6 +45,7 @@
 #include "service.h"
 #include "signal-util.h"
 #include "special.h"
+#include "stdio-util.h"
 #include "string-table.h"
 #include "string-util.h"
 #include "strv.h"
@@ -2140,6 +2141,83 @@ _pure_ static bool service_can_reload(Unit *u) {
         return !!s->exec_command[SERVICE_EXEC_RELOAD];
 }
 
+static unsigned service_exec_command_index(Unit *u, ServiceExecCommand id, bool control) {
+        Service *s = SERVICE(u);
+        unsigned index = 0;
+        ExecCommand *current, *first, *c;
+
+        assert(s);
+
+        first = s->exec_command[id];
+        current = control ? s->control_command : s->main_command;
+
+        /* Figure out where we are in the list by walking back to the beginning */
+        for (c = current; c != first; c = c->command_prev)
+                index++;
+
+        return index;
+}
+
+static int service_serialize_exec_command(Unit *u, FILE *f, bool control) {
+        Service *s = SERVICE(u);
+        ServiceExecCommand id;
+        ExecCommand *c;
+        int index;
+        const char *type;
+        char **arg;
+        _cleanup_strv_free_ char **escaped_args = NULL;
+        _cleanup_free_ char *args = NULL, *p = NULL;
+        size_t allocated = 0, length = 0;
+
+        assert(s);
+        assert(f);
+
+        if (control) {
+                type = "control";
+                c = s->control_command;
+                id = s->control_command_id;
+        } else {
+                type = "main";
+                c = s->main_command;
+                id = SERVICE_EXEC_START;
+        }
+
+        assert(c);
+
+        index = service_exec_command_index(u, id, control);
+
+        STRV_FOREACH(arg, c->argv) {
+                size_t n;
+                _cleanup_free_ char *e = NULL;
+
+                e = xescape(*arg, WHITESPACE);
+                if (!e)
+                        return -ENOMEM;
+
+                n = strlen(e);
+                if (!GREEDY_REALLOC(args, allocated, length + 1 + n + 1))
+                        return -ENOMEM;
+
+                if (length > 0)
+                        args[length++] = ' ';
+
+                memcpy(args + length, e, n);
+                length += n;
+        }
+
+        if (!GREEDY_REALLOC(args, allocated, length + 1))
+                return -ENOMEM;
+        args[length++] = 0;
+
+        p = xescape(c->path, WHITESPACE);
+        if (!p)
+                return -ENOMEM;
+
+        fprintf(f, "%s-command=%s %d %s %s\n", type, service_exec_command_to_string(id), index, p, args);
+
+        return 0;
+}
+
 static int service_serialize(Unit *u, FILE *f, FDSet *fds) {
         Service *s = SERVICE(u);
         ServiceFDStore *fs;
@@ -2167,11 +2245,11 @@ static int service_serialize(Unit *u, FILE *f, FDSet *fds) {
         if (r < 0)
                 return r;
 
-        /* FIXME: There's a minor uncleanliness here: if there are
-         * multiple commands attached here, we will start from the
-         * first one again */
-        if (s->control_command_id >= 0)
-                unit_serialize_item(u, f, "control-command", service_exec_command_to_string(s->control_command_id));
+        if (s->control_command)
+                service_serialize_exec_command(u, f, true);
+
+        if (s->main_command)
+                service_serialize_exec_command(u, f, false);
 
         r = unit_serialize_item_fd(u, f, fds, "stdin-fd", s->stdin_fd);
         if (r < 0)
@@ -2223,6 +2301,103 @@ static int service_serialize(Unit *u, FILE *f, FDSet *fds) {
 
         if (s->watchdog_override_enable)
                unit_serialize_item_format(u, f, "watchdog-override-usec", USEC_FMT, s->watchdog_override_usec);
+
+        return 0;
+}
+
+static int service_deserialize_exec_command(Unit *u, const char *key, const char *value) {
+        Service *s = SERVICE(u);
+        int r;
+        unsigned index, i;
+        bool control, found = false;
+        ServiceExecCommand id;
+        ExecCommand *command = NULL;
+        _cleanup_free_ char *args = NULL, *path = NULL;
+        _cleanup_strv_free_ char **argv = NULL;
+
+        enum ExecCommandState {
+                STATE_EXEC_COMMAND_TYPE,
+                STATE_EXEC_COMMAND_ID,
+                STATE_EXEC_COMMAND_PATH,
+                STATE_EXEC_COMMAND_ARGS,
+                _STATE_EXEC_COMMAND_MAX,
+                _STATE_EXEC_COMMAND_INVALID = -1,
+        } state;
+
+        assert(s);
+        assert(key);
+        assert(value);
+
+        control = streq(key, "control-command");
+
+        state = STATE_EXEC_COMMAND_TYPE;
+
+        for (;;) {
+                _cleanup_free_ char *arg = NULL;
+
+                r = extract_first_word(&value, &arg, NULL, EXTRACT_CUNESCAPE);
+                if (r == 0)
+                        break;
+                else if (r < 0)
+                        return r;
+
+                switch (state) {
+                case STATE_EXEC_COMMAND_TYPE:
+                        id = service_exec_command_from_string(arg);
+                        if (id < 0)
+                                return -EINVAL;
+
+                        state = STATE_EXEC_COMMAND_ID;
+                        break;
+                case STATE_EXEC_COMMAND_ID:
+                        r = safe_atou(arg, &index);
+                        if (r < 0)
+                                return -EINVAL;
+
+                        state = STATE_EXEC_COMMAND_PATH;
+                        break;
+                case STATE_EXEC_COMMAND_PATH:
+                        path = arg;
+                        arg = NULL;
+                        state = STATE_EXEC_COMMAND_ARGS;
+
+                        if (!path_is_absolute(path))
+                                return -EINVAL;
+                        break;
+                case STATE_EXEC_COMMAND_ARGS:
+                        r = strv_extend(&argv, arg);
+                        if (r < 0)
+                                return -ENOMEM;
+                        break;
+                default:
+                        assert_not_reached("Unknown error at deserialization of exec command");
+                        break;
+                }
+        }
+
+        /* Let's check whether exec command on given offset matches data that we just deserialized */
+        for (command = s->exec_command[id], i = 0; command; command = command->command_next, i++) {
+                if (i != index)
+                        continue;
+
+                found = strv_equal(argv, command->argv) && streq(command->path, path);
+                break;
+        }
+
+        if (!found) {
+                /* Command at the index we serialized is different, let's look for command that exactly
+                 * matches but is on different index. If there is no such command we will not resume execution. */
+                for (command = s->exec_command[id]; command; command = command->command_next)
+                        if (strv_equal(command->argv, argv) && streq(command->path, path))
+                                break;
+        }
+
+        if (command && control)
+                s->control_command = command;
+        else if (command)
+                s->main_command = command;
+        else
+                log_unit_warning(u, "Previously executed command vanished from the unit file, execution of the command list won't be resumed.");
 
         return 0;
 }
@@ -2309,16 +2484,6 @@ static int service_deserialize_item(Unit *u, const char *key, const char *value,
                         s->status_text = t;
                 }
 
-        } else if (streq(key, "control-command")) {
-                ServiceExecCommand id;
-
-                id = service_exec_command_from_string(value);
-                if (id < 0)
-                        log_unit_debug(u, "Failed to parse exec-command value: %s", value);
-                else {
-                        s->control_command_id = id;
-                        s->control_command = s->exec_command[id];
-                }
         } else if (streq(key, "accept-socket")) {
                 Unit *socket;
 
@@ -2437,6 +2602,10 @@ static int service_deserialize_item(Unit *u, const char *key, const char *value,
                         s->watchdog_override_enable = true;
                         s->watchdog_override_usec = watchdog_override_usec;
                 }
+        } else if (STR_IN_SET(key, "main-command", "control-command")) {
+                r = service_deserialize_exec_command(u, key, value);
+                if (r < 0)
+                        log_unit_debug(u, "Failed to parse previously executed command: %s", value);
         } else
                 log_unit_debug(u, "Unknown serialization key: %s", key);
 
