@@ -586,6 +586,35 @@ inst_libs() {
     done
 }
 
+install_python3() {
+    if [ -e /etc/redhat-release ]; then
+        . scl_source enable rh-python-35
+    fi
+
+    inst $(which python3)
+
+    MODULE_DIRS=$(mktemp systemd-test.XXXXXX)
+    python3 > $MODULE_DIRS <<"EOF"
+import sys
+for p in sys.path:
+    if p:
+       print(p)
+EOF
+
+    find \
+        $(<"$MODULE_DIRS") -xtype f \
+        | while read file; do
+        inst $file
+    done
+
+    # Pydbus depends on Gio introspection
+    find \
+        /lib64/girepository-1.0 -xtype f \
+        | while read file; do
+        inst $file
+    done
+}
+
 import_testdir() {
     STATEFILE=".testdir"
     [[ -e $STATEFILE ]] && . $STATEFILE
