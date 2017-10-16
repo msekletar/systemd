@@ -105,6 +105,7 @@
 #include "umask-util.h"
 #include "user-util.h"
 #include "util.h"
+#include "virt.h"
 
 /* Note that devpts's gid= parameter parses GIDs as signed values, hence we stay away from the upper half of the 32bit
  * UID range here. We leave a bit of room at the lower end and a lot of room at the upper end, so that other subsystems
@@ -3488,9 +3489,11 @@ static int run(int master,
                         return r;
         }
 
-        r = chown_cgroup(*pid, arg_uid_shift);
-        if (r < 0)
-                return r;
+        if (detect_container() <= 0) {
+                r = chown_cgroup(*pid, arg_uid_shift);
+                if (r < 0)
+                        return r;
+        }
 
         /* Notify the child that the parent is ready with all
          * its setup (including cgroup-ification), and that
