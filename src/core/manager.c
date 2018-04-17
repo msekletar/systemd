@@ -567,6 +567,72 @@ static int manager_setup_signals(Manager *m) {
         return 0;
 }
 
+static int on_pid_max_event(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+        Manager *m = userdata;
+
+        assert(s);
+        assert(fd >= 0);
+        assert(m);
+
+        /* Drain the inotify buffer, we are not really interested in events */
+        for (;;) {
+                union inotify_event_buffer buffer;
+                ssize_t l;
+
+                l = read(fd, &buffer, sizeof(buffer));
+                if (l < 0) {
+                        if (IN_SET(errno, EINTR, EAGAIN))
+                                return 0;
+
+                        return log_error_errno(errno, "Failed to read pid_max inotify events: %m");
+                }
+        }
+
+        m->default_tasks_max = system_tasks_max_scale(DEFAULT_TASKS_MAX_PERCENTAGE, 100U);
+
+        return 0;
+}
+
+static int manager_setup_pid_max(Manager *m) {
+        int r;
+        const char *pid_max_path = "/proc/sys/kernel/pid_max";
+        _cleanup_free_ char *root = NULL, *cg_pids_max_path = NULL;
+
+        assert(m);
+
+        m->pid_max_inotify_fd = inotify_init1(IN_CLOEXEC);
+        if (m->pid_max_inotify_fd < 0)
+                return log_error_errno(errno, "Failed to create pid_max inotify object: %m");
+
+        r = sd_event_add_io(m->event, &m->pid_max_inotify_event_source, m->pid_max_inotify_fd, EPOLLIN, on_pid_max_event, m);
+        if (r < 0)
+                return log_error_errno(r, "Failed to watch pid_max inotify object: %m");
+
+        r = sd_event_source_set_priority(m->pid_max_inotify_event_source, SD_EVENT_PRIORITY_NORMAL+20);
+        if (r < 0)
+                return log_error_errno(r, "Failed to set priority of inotify event source: %m");
+
+        (void) sd_event_source_set_description(m->pid_max_inotify_event_source, "pid-max-inotify");
+
+        r = inotify_add_watch(m->pid_max_inotify_fd, pid_max_path, IN_MODIFY);
+        if (r < 0)
+                return log_error_errno(errno, "Failed to watch for changes in %s: %m", pid_max_path);
+
+        if (cg_get_root_path(&root) < 0)
+                return log_error_errno(errno, "Failed to get path for root cgropup: %m");
+
+        r = cg_get_path("pids", root, "pids.max", &cg_pids_max_path);
+        if (r < 0)
+                return log_error_errno(r, "Failed to get path to pids_max attribute of the root cgroup: %m");
+
+        /* This will probably fail for PID1 because root cgroup in PIDs controller doesn't have pids_max */
+        r = inotify_add_watch(m->pid_max_inotify_fd, cg_pids_max_path, IN_MODIFY);
+        if (r < 0 && errno != ENONET)
+                return log_error_errno(errno, "Failed to watch for changes in %s: %m", pid_max_path);
+
+        return 0;
+}
+
 static void manager_sanitize_environment(Manager *m) {
         assert(m);
 
@@ -760,7 +826,7 @@ int manager_new(UnitFileScope scope, unsigned test_run_flags, Manager **_m) {
 
         m->pin_cgroupfs_fd = m->notify_fd = m->cgroups_agent_fd = m->signal_fd = m->time_change_fd =
                 m->dev_autofs_fd = m->private_listen_fd = m->cgroup_inotify_fd =
-                m->ask_password_inotify_fd = -1;
+                m->ask_password_inotify_fd = m->pid_max_inotify_fd = -1;
 
         m->user_lookup_fds[0] = m->user_lookup_fds[1] = -1;
 
@@ -807,6 +873,10 @@ int manager_new(UnitFileScope scope, unsigned test_run_flags, Manager **_m) {
                 return r;
 
         r = manager_setup_run_queue(m);
+        if (r < 0)
+                return r;
+
+        r = manager_setup_pid_max(m);
         if (r < 0)
                 return r;
 
@@ -1283,12 +1353,14 @@ Manager* manager_free(Manager *m) {
         sd_event_source_unref(m->run_queue_event_source);
         sd_event_source_unref(m->user_lookup_event_source);
         sd_event_source_unref(m->sync_bus_names_event_source);
+        sd_event_source_unref(m->pid_max_inotify_event_source);
 
         safe_close(m->signal_fd);
         safe_close(m->notify_fd);
         safe_close(m->cgroups_agent_fd);
         safe_close(m->time_change_fd);
         safe_close_pair(m->user_lookup_fds);
+        safe_close(m->pid_max_inotify_fd);
 
         manager_close_ask_password(m);
 

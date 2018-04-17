@@ -244,6 +244,10 @@ struct Manager {
         sd_event_source *cgroup_inotify_event_source;
         Hashmap *cgroup_inotify_wd_unit;
 
+        /* Notifications for changes in /proc/sys/kernel/pid_max */
+        int pid_max_inotify_fd;
+        sd_event_source *pid_max_inotify_event_source;
+
         /* A defer event for handling cgroup empty events and processing them after SIGCHLD in all cases. */
         sd_event_source *cgroup_empty_event_source;
 
