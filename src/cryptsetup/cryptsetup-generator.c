@@ -393,22 +393,37 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
                 if (proc_cmdline_value_missing(key, value))
                         return 0;
 
-                r = sscanf(value, "%m[0-9a-fA-F-]=%ms", &uuid, &uuid_value);
-                if (r == 2) {
+                r = sscanf(value, "%m[0-9a-fA-F-]", &uuid);
+                if (r == 1) {
+                        size_t n;
                         char *c;
+                        const char *keyspec;
                         _cleanup_free_ char *keyfile = NULL, *keydev = NULL;
 
                         d = get_crypto_device(uuid);
                         if (!d)
                                 return log_oom();
 
-                        c = strrchr(uuid_value, ':');
-                        if (!c)
+                        n = strspn(value, LETTERS DIGITS "-");
+                        if (value[n] != '=') {
+                                log_warning("Failed to parse luks.key= kernel command line switch %s. Ignoring.", value);
+                                return 0;
+                        }
+
+                        keyspec = value + n + 1;
+
+                        c = strrchr(keyspec, ':');
+                        if (!c) {
                                 /* No keydev specified */
-                                return free_and_replace(d->keyfile, uuid_value);
+                                keyfile = strdup(keyspec);
+                                if (!keyfile)
+                                        return log_oom();
+
+                                return free_and_replace(d->keyfile, keyfile);
+                        }
 
                         *c = '\0';
-                        keyfile = strdup(uuid_value);
+                        keyfile = strdup(keyspec);
                         keydev = strdup(++c);
 
                         if (!keyfile || !keydev)
