@@ -396,19 +396,23 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
                 r = sscanf(value, "%m[0-9a-fA-F-]=%ms", &uuid, &uuid_value);
                 if (r == 2) {
                         char *c;
-                        _cleanup_free_ char *keyfile = NULL, *keydev = NULL;
+                        _cleanup_free_ char *keyspec = NULL, *keyfile = NULL, *keydev = NULL;
 
                         d = get_crypto_device(uuid);
                         if (!d)
                                 return log_oom();
 
-                        c = strrchr(uuid_value, ':');
+                        keyspec = strdup(strchr(value, '=') + 1);
+                        if (!keyspec)
+                                return log_oom();
+
+                        c = strrchr(keyspec, ':');
                         if (!c)
                                 /* No keydev specified */
-                                return free_and_replace(d->keyfile, uuid_value);
+                                return free_and_replace(d->keyfile, keyspec);
 
                         *c = '\0';
-                        keyfile = strdup(uuid_value);
+                        keyfile = strdup(keyspec);
                         keydev = strdup(++c);
 
                         if (!keyfile || !keydev)
