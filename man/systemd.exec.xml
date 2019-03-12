@@ -762,6 +762,22 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
       </varlistentry>
 
       <varlistentry>
+        <term><varname>NUMAMemoryPolicy=</varname></term>
+
+        <listitem><para>Controls the NUMA memory policy of the executed processes. Takes a policy type and a list of NUMA
+        nodes. Policy type and list of NUMA nodes must be separated by comma. Policy type is one of,
+        <option>default</option>, <option>prefer</option>, <option>bind</option> and <option>interleave</option>. List of
+        NUMA nodes has the same syntax as a list of CPU indices for <varname>CPUAffinity</varname> option. Note that
+        the list of NUMA nodes is not required for <option>default</option> policy and for <option>prefer</option> policy
+        we expect list containing only one NUMA node. For more details on each policy please see,
+        <citerefentry><refentrytitle>set_mempolicy</refentrytitle><manvolnum>2</manvolnum></citerefentry>. For overall
+        overview of NUMA support in Linux see,
+        <citerefentry><refentrytitle>numa</refentrytitle><manvolnum>7</manvolnum></citerefentry>
+        </para></listitem>
+      </varlistentry>
+
+
+      <varlistentry>
         <term><varname>IOSchedulingClass=</varname></term>
 
         <listitem><para>Sets the I/O scheduling class for executed processes. Takes an integer between 0 and 3 or one
@@ -2917,6 +2933,12 @@ StandardInputData=SWNrIHNpdHplIGRhIHVuJyBlc3NlIEtsb3BzLAp1ZmYgZWVtYWwga2xvcHAncy
             <entry><constant>EXIT_CONFIGURATION_DIRECTORY</constant></entry>
             <entry>Failed to set up unit's configuration directory. See <varname>ConfigurationDirectory=</varname> above.</entry>
           </row>
+          <row>
+            <entry>242</entry>
+            <entry><constant>EXIT_NUMA_MEM_POLICY</constant></entry>
+            <entry>Failed to set up unit's NUMA memory policy. See <varname>NUMAMemoryPolicy=</varname> above.</entry>
+          </row>
+
         </tbody>
       </tgroup>
     </table>

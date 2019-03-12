@@ -580,6 +580,36 @@ static int config_parse_cpu_affinity2(
         return 0;
 }
 
+static int config_parse_numa_mem_policy(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        _cleanup_numa_ NUMAMemPolicy *policy = NULL;
+        int r;
+
+        assert(rvalue);
+
+        r = parse_numa_mem_policy_from_string(rvalue, &policy);
+        if (r < 0)
+                log_warning_errno(r, "Failed to parse NUMA memory policy: %m");
+        else {
+                r = set_numa_mem_policy(policy);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to set NUMA memory policy: %m");
+        }
+
+        return 0;
+}
+
+
 static int config_parse_show_status(
                 const char* unit,
                 const char *filename,
@@ -718,6 +748,7 @@ static int parse_config_file(void) {
                 { "Manager", "CrashReboot",               config_parse_bool,             0, &arg_crash_reboot                      },
                 { "Manager", "ShowStatus",                config_parse_show_status,      0, &arg_show_status                       },
                 { "Manager", "CPUAffinity",               config_parse_cpu_affinity2,    0, NULL                                   },
+                { "Manager", "NUMAMemoryPolicy",          config_parse_numa_mem_policy,  0, NULL                                   },
                 { "Manager", "JoinControllers",           config_parse_warn_compat,      DISABLED_CONFIGURATION, NULL              },
                 { "Manager", "RuntimeWatchdogSec",        config_parse_sec,              0, &arg_runtime_watchdog                  },
                 { "Manager", "ShutdownWatchdogSec",       config_parse_sec,              0, &arg_shutdown_watchdog                 },

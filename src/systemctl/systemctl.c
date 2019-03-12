@@ -31,6 +31,7 @@
 #include "cgroup-show.h"
 #include "cgroup-util.h"
 #include "copy.h"
+#include "cpu-set-util.h"
 #include "dropin.h"
 #include "efivars.h"
 #include "env-util.h"
@@ -4978,6 +4979,42 @@ static int print_property(const char *name, const char *expected_value, sd_bus_m
                                 }
 
                                 fputc('\n', stdout);
+                        }
+                        return 1;
+
+                } else if (streq(name, "NUMAMemoryPolicy")) {
+                        uint64_t type, maxnode;
+                        const void *mask;
+                        size_t n;
+
+                        r = sd_bus_message_enter_container(m, 'r', "ttay");
+                        if (r < 0)
+                                return r;
+
+                        r = sd_bus_message_read(m, "tt", &type, &maxnode);
+                        if (r < 0)
+                                return r;
+
+                        r = sd_bus_message_read_array(m, 'y', &mask, &n);
+                        if (r < 0)
+                                return r;
+
+                        r = sd_bus_message_exit_container(m);
+                        if (r < 0)
+                                return r;
+
+                        if (type == NUMA_MEM_POLICY_TYPE_DEFAULT)
+                                bus_print_property_valuef(name, expected_value, value, "%s", "default");
+                        else {
+                                _cleanup_free_ char *nodes = NULL;
+
+                                r = cpu_set_to_string_alloc((cpu_set_t *) mask, CPU_ALLOC_SIZE(maxnode), &nodes);
+                                if (r < 0)
+                                        log_oom();
+
+                                bus_print_property_valuef(name, expected_value, value, "%s,%s",
+                                                          numa_mem_policy_type_to_string(type),
+                                                          strna(nodes));
                         }
                         return 1;
                 }

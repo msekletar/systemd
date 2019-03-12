@@ -1211,6 +1211,39 @@ int config_parse_exec_cpu_sched_policy(const char *unit,
         return 0;
 }
 
+int config_parse_exec_numa_mem_policy(const char *unit,
+                                      const char *filename,
+                                      unsigned line,
+                                      const char *section,
+                                      unsigned section_line,
+                                      const char *lvalue,
+                                      int ltype,
+                                      const char *rvalue,
+                                      void *data,
+                                      void *userdata) {
+
+        int r;
+        NUMAMemPolicy *policy = NULL;
+        ExecContext *c = data;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+        assert(data);
+
+        r = parse_numa_mem_policy_from_string(rvalue, &policy);
+        if (r < 0)
+                log_syntax(unit, LOG_ERR, filename, line, 0, "Failed to parse NUMA memory policy, ignoring: %s", rvalue);
+
+        if (policy) {
+                free_numap(&c->numa_policy);
+                c->numa_policy = policy;
+        }
+
+        return 0;
+}
+
+
 int config_parse_exec_cpu_sched_prio(const char *unit,
                                      const char *filename,
                                      unsigned line,
