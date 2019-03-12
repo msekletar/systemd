@@ -27,6 +27,10 @@ CHANGES WITH 243 in spe:
         * Memory protection directives can now take a value of zero, allowing
           explicit opting out of a default value propagated by an ancestor.
 
+        * A new setting NUMAMemoryPolicy may be used to set process memory
+          allocation policy. Setting can be specified in system.conf and
+          hence will set the default policy for PID1. Default policy can be
+          overriden on per-service basis.
           …
 
 CHANGES WITH 242:

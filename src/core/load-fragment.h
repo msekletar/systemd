@@ -108,6 +108,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_pid_file);
 CONFIG_PARSER_PROTOTYPE(config_parse_exit_status);
 CONFIG_PARSER_PROTOTYPE(config_parse_disable_controllers);
 CONFIG_PARSER_PROTOTYPE(config_parse_oom_policy);
+CONFIG_PARSER_PROTOTYPE(config_parse_exec_numa_mem_policy);
 
 /* gperf prototypes */
 const struct ConfigPerfItem* load_fragment_gperf_lookup(const char *key, GPERF_LEN_TYPE length);

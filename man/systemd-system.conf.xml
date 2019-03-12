@@ -104,6 +104,17 @@
       </varlistentry>
 
       <varlistentry>
+        <term><varname>NUMAMemoryPolicy=</varname></term>
+
+        <listitem><para>Configures the NUMA memory policy for the service manager as well as the default NUMA memory policy
+        for all forked off processes. Takes a policy type and optional NUMA node string specification. Individual services
+        may override the NUMA memory policy for their processes with the <varname>NUMAMemoryPolicy=</varname> setting in
+        unit files, see
+        <citerefentry><refentrytitle>systemd.exec</refentrytitle><manvolnum>5</manvolnum></citerefentry>.</para></listitem>
+      </varlistentry>
+
+
+      <varlistentry>
         <term><varname>RuntimeWatchdogSec=</varname></term>
         <term><varname>ShutdownWatchdogSec=</varname></term>
 

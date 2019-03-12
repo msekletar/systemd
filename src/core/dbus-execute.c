@@ -222,6 +222,58 @@ static int property_get_cpu_affinity(
         return sd_bus_message_append_array(reply, 'y', c->cpuset, CPU_ALLOC_SIZE(c->cpuset_ncpus));
 }
 
+static int property_get_numa_mem_policy(
+                sd_bus *bus,
+                const char *path,
+                const char *interface,
+                const char *property,
+                sd_bus_message *reply,
+                void *userdata,
+                sd_bus_error *error) {
+        int r;
+        ExecContext *c = userdata;
+        uint64_t type = NUMA_MEM_POLICY_TYPE_DEFAULT;
+        uint64_t maxnode = num_numa_nodes();
+        cpu_set_t *nodemask = NULL;
+
+        assert(bus);
+        assert(reply);
+        assert(c);
+
+        if (c->numa_policy) {
+                type = c->numa_policy->type;
+                maxnode = c->numa_policy->maxnode;
+        }
+
+        r = sd_bus_message_open_container(reply, 'r', "ttay");
+        if (r < 0)
+                return r;
+
+        r = sd_bus_message_append_basic(reply, 't', &type);
+        if (r < 0)
+                return r;
+
+        r = sd_bus_message_append_basic(reply, 't', &maxnode);
+        if (r < 0)
+                return r;
+
+        if (!c->numa_policy) {
+                nodemask = CPU_ALLOC(maxnode);
+                if (!nodemask)
+                        return -ENOMEM;
+        }
+
+        r = sd_bus_message_append_array(reply, 'y', c->numa_policy ? c->numa_policy->nodemask : nodemask, CPU_ALLOC_SIZE(maxnode));
+        if (r < 0) {
+                CPU_FREE(nodemask);
+                return r;
+        }
+
+        CPU_FREE(nodemask);
+
+        return sd_bus_message_close_container(reply);
+}
+
 static int property_get_timer_slack_nsec(
                 sd_bus *bus,
                 const char *path,
@@ -697,6 +749,7 @@ const sd_bus_vtable bus_exec_vtable[] = {
         SD_BUS_PROPERTY("CPUSchedulingPolicy", "i", property_get_cpu_sched_policy, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("CPUSchedulingPriority", "i", property_get_cpu_sched_priority, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("CPUAffinity", "ay", property_get_cpu_affinity, 0, SD_BUS_VTABLE_PROPERTY_CONST),
+        SD_BUS_PROPERTY("NUMAMemoryPolicy", "(ttay)", property_get_numa_mem_policy, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("TimerSlackNSec", "t", property_get_timer_slack_nsec, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("CPUSchedulingResetOnFork", "b", bus_property_get_bool, offsetof(ExecContext, cpu_sched_reset_on_fork), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("NonBlocking", "b", bus_property_get_bool, offsetof(ExecContext, non_blocking), SD_BUS_VTABLE_PROPERTY_CONST),
@@ -1618,6 +1671,63 @@ int bus_exec_context_set_transient_property(
                                         CPU_OR_S(n, c->cpuset, c->cpuset, (cpu_set_t*) a);
 
                                 unit_write_settingf(u, flags, name, "%s=%s", name, str);
+                        }
+                }
+
+                return 1;
+
+        } else if (streq(name, "NUMAMemoryPolicy")) {
+                uint64_t type, maxnode;
+                _cleanup_numa_ NUMAMemPolicy *p = NULL;
+                const void *mask;
+                size_t n;
+
+                r = sd_bus_message_enter_container(message, 'v', "ttay");
+                if (r < 0)
+                        return r;
+
+                r = sd_bus_message_read(message, "tt", &type, &maxnode);
+                if (r < 0)
+                        return r;
+
+                r = sd_bus_message_read_array(message, 'y', &mask, &n);
+                if (r < 0)
+                        return r;
+
+                if (maxnode > num_numa_nodes())
+                        return -EINVAL;
+
+                if (type >= _NUMA_MEM_POLICY_TYPE_MAX)
+                        return -EINVAL;
+
+                if (!UNIT_WRITE_FLAGS_NOOP(flags)) {
+                        if (n == 0) {
+                                free_numap(&c->numa_policy);
+                                unit_write_settingf(u, flags, name, "%s=", name);
+                        } else {
+                                const char *policy_type;
+                                _cleanup_free_ char *node_list = NULL;
+
+                                p = new0(NUMAMemPolicy, 1);
+                                if (!p)
+                                        return -ENOMEM;
+
+                                p->type = type;
+                                p->nodemask = (cpu_set_t *) mask;
+                                p->maxnode = maxnode;
+
+                                r = cpu_set_to_string_alloc(p->nodemask, CPU_ALLOC_SIZE(p->maxnode), &node_list);
+                                if (r < 0)
+                                        return r;
+
+                                policy_type = numa_mem_policy_type_to_string(p->type);
+                                if (!policy_type)
+                                        return -EINVAL;
+
+                                free_numap(&c->numa_policy);
+                                c->numa_policy = p;
+
+                                unit_write_settingf(u, flags, name, "%s=%s,%s", name, policy_type, node_list);
                         }
                 }
 

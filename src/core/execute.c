@@ -3144,6 +3144,14 @@ static int exec_child(
                 }
         }
 
+        if (context->numa_policy) {
+                r = set_numa_mem_policy(context->numa_policy);
+                if (r < 0) {
+                        *exit_status = EXIT_NUMA_MEM_POLICY;
+                        return log_unit_error_errno(unit, errno, "Failed to set NUMA memory policy: %m");
+                }
+        }
+
         if (context->cpuset)
                 if (sched_setaffinity(0, CPU_ALLOC_SIZE(context->cpuset_ncpus), context->cpuset) < 0) {
                         *exit_status = EXIT_CPUAFFINITY;
@@ -4328,10 +4336,21 @@ void exec_context_dump(const ExecContext *c, FILE* f, const char *prefix) {
                         prefix, yes_no(c->cpu_sched_reset_on_fork));
         }
 
+
+
         if (c->cpuset) {
                 fprintf(f, "%sCPUAffinity:", prefix);
                 for (i = 0; i < c->cpuset_ncpus; i++)
                         if (CPU_ISSET_S(i, CPU_ALLOC_SIZE(c->cpuset_ncpus), c->cpuset))
+                                fprintf(f, " %u", i);
+                fputs("\n", f);
+        }
+
+        if (c->numa_policy) {
+                fprintf(f, "%sNUMAMemoryPolicy:", prefix);
+                fprintf(f, "%s,", numa_mem_policy_type_to_string(c->numa_policy->type));
+                for (i = 0; i < c->numa_policy->maxnode; i++)
+                        if (CPU_ISSET_S(i, CPU_ALLOC_SIZE(c->numa_policy->maxnode), c->numa_policy->nodemask))
                                 fprintf(f, " %u", i);
                 fputs("\n", f);
         }
