@@ -926,6 +926,7 @@ install_basic_tools() {
     dracut_install -o sushell
     # in Debian ldconfig is just a shell script wrapper around ldconfig.real
     dracut_install -o ldconfig.real
+    dracut_install mktemp cut tr timeout
 }
 
 install_debug_tools() {
