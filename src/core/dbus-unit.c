@@ -719,7 +719,7 @@ int bus_unit_method_clean(sd_bus_message *message, void *userdata, sd_bus_error 
         if (r == -EUNATCH)
                 return sd_bus_error_setf(error, BUS_ERROR_NOTHING_TO_CLEAN, "No matching resources found.");
         if (r == -EBUSY)
-                return sd_bus_error_setf(error, BUS_ERROR_UNIT_BUSY, "Unit is not inactive or has pending job.");
+                return sd_bus_error_setf(error, BUS_ERROR_UNIT_BUSY, "Unit is inactive or has pending job.");
         if (r < 0)
                 return r;
 
