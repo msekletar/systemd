@@ -361,7 +361,7 @@ static int process(
                                 return 0;
 
                         r = cg_get_keyed_attribute("cpu", path, "cpu.stat", STRV_MAKE("usage_usec"), &val);
-                        if (IN_SET(r, -ENOENT, -ENXIO))
+                        if (IN_SET(r, -ENOENT, 0))
                                 return 0;
                         if (r < 0)
                                 return r;

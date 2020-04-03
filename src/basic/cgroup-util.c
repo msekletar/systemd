@@ -1749,7 +1749,9 @@ int cg_get_keyed_attribute(
                 p += strspn(p, NEWLINE);
         }
 
-        r = -ENXIO;
+done:
+        memcpy(ret_values, v, sizeof(char*) * n);
+        return n_done;
 
 fail:
         for (i = 0; i < n; i++)
@@ -1757,9 +1759,6 @@ fail:
 
         return r;
 
-done:
-        memcpy(ret_values, v, sizeof(char*) * n);
-        return 0;
 }
 
 int cg_mask_to_string(CGroupMask mask, char **ret) {

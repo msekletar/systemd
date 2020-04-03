@@ -2671,7 +2671,7 @@ int unit_check_oom(Unit *u) {
                 return 0;
 
         r = cg_get_keyed_attribute("memory", u->cgroup_path, "memory.events", STRV_MAKE("oom_kill"), &oom_kill);
-        if (r < 0)
+        if (r <= 0)
                 return log_unit_debug_errno(u, r, "Failed to read oom_kill field of memory.events cgroup attribute: %m");
 
         r = safe_atou64(oom_kill, &c);
@@ -3164,7 +3164,7 @@ static int unit_get_cpu_usage_raw(Unit *u, nsec_t *ret) {
                 uint64_t us;
 
                 r = cg_get_keyed_attribute("cpu", u->cgroup_path, "cpu.stat", STRV_MAKE("usage_usec"), &val);
-                if (IN_SET(r, -ENOENT, -ENXIO))
+                if (IN_SET(r, -ENOENT, 0))
                         return -ENODATA;
                 if (r < 0)
                         return r;
