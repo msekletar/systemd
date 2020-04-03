@@ -1,5 +1,11 @@
 systemd System and Service Manager
 
+CHANGES WITH 246 in spe:
+
+        * The service manager gained basic support for cgroup v2 freezer. Units
+          can now be suspended or resumed either using new systemctl verbs,
+          freeze and thaw respectively, or via D-Bus.
+
 CHANGES WITH 245:
 
         * A new tool "systemd-repart" has been added, that operates as an

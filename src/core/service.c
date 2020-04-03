@@ -4440,6 +4440,9 @@ const UnitVTable service_vtable = {
         .clean = service_clean,
         .can_clean = service_can_clean,
 
+        .freeze = unit_freeze_vtable_common,
+        .thaw = unit_thaw_vtable_common,
+
         .serialize = service_serialize,
         .deserialize_item = service_deserialize_item,
 
