@@ -705,6 +705,48 @@ static int is_symlink_with_known_name(const UnitFileInstallInfo *i, const char *
         return false;
 }
 
+static int update_link_cache(const char *root_dir,
+                             Hashmap *link_cache,
+                             const char *link,
+                             char **ret_target) {
+        _cleanup_free_ char *target = NULL, *l = NULL, *t = NULL;
+        int r;
+
+        assert(link_cache);
+        assert(link);
+        assert(ret_target);
+
+        r = readlink_malloc(link, &target);
+        if (r < 0)
+                return r;
+
+        if (!path_is_absolute(target)) {
+                char *u;
+
+                u = path_join(root_dir, target);
+                if (!u)
+                        return -ENOMEM;
+
+                free_and_replace(target, u);
+        }
+
+        l = strdup(link);
+        if (!l)
+                return -ENOMEM;
+
+        t = strdup(target);
+        if (!t)
+                return -ENOMEM;
+
+        r = hashmap_put(link_cache, TAKE_PTR(l), TAKE_PTR(t));
+        if (r < 0)
+                return -ENOMEM;
+
+        *ret_target = TAKE_PTR(target);
+
+        return r;
+}
+
 static int find_symlinks_fd(
                 const char *root_dir,
                 const UnitFileInstallInfo *i,
@@ -713,7 +755,8 @@ static int find_symlinks_fd(
                 int fd,
                 const char *path,
                 const char *config_path,
-                bool *same_name_link) {
+                bool *same_name_link,
+                Hashmap *link_cache) {
 
         _cleanup_closedir_ DIR *d = NULL;
         struct dirent *de;
@@ -724,6 +767,7 @@ static int find_symlinks_fd(
         assert(path);
         assert(config_path);
         assert(same_name_link);
+        assert(link_cache);
 
         d = fdopendir(fd);
         if (!d) {
@@ -757,7 +801,7 @@ static int find_symlinks_fd(
 
                         /* This will close nfd, regardless whether it succeeds or not */
                         q = find_symlinks_fd(root_dir, i, match_aliases, ignore_same_name, nfd,
-                                             p, config_path, same_name_link);
+                                             p, config_path, same_name_link, link_cache);
                         if (q > 0)
                                 return 1;
                         if (r == 0)
@@ -773,25 +817,22 @@ static int find_symlinks_fd(
                         if (!p)
                                 return -ENOMEM;
 
-                        /* Acquire symlink destination */
-                        q = readlink_malloc(p, &dest);
-                        if (q == -ENOENT)
-                                continue;
-                        if (q < 0) {
-                                if (r == 0)
-                                        r = q;
-                                continue;
-                        }
-
-                        /* Make absolute */
-                        if (!path_is_absolute(dest)) {
-                                char *x;
-
-                                x = path_join(root_dir, dest);
-                                if (!x)
+                        /* Check if we already have a destination for this symlink */
+                        dest = hashmap_get(link_cache, p);
+                        if (!dest) {
+                                q = update_link_cache(root_dir, link_cache, p, &dest);
+                                if (q == -ENOENT)
+                                        continue;
+                                if (q < 0) {
+                                        if (r == 0)
+                                                r = q;
+                                        continue;
+                                }
+                        } else {
+                                /* We want the cache to keep the ownership so let's make our own copy */
+                                dest = strdup(dest);
+                                if (!dest)
                                         return -ENOMEM;
-
-                                free_and_replace(dest, x);
                         }
 
                         assert(unit_name_is_valid(i->name, UNIT_NAME_ANY));
@@ -843,7 +884,8 @@ static int find_symlinks(
                 bool match_name,
                 bool ignore_same_name,
                 const char *config_path,
-                bool *same_name_link) {
+                bool *same_name_link,
+                Hashmap *link_cache) {
 
         int fd;
 
@@ -860,7 +902,7 @@ static int find_symlinks(
 
         /* This takes possession of fd and closes it */
         return find_symlinks_fd(root_dir, i, match_name, ignore_same_name, fd,
-                                config_path, config_path, same_name_link);
+                                config_path, config_path, same_name_link, link_cache);
 }
 
 static int find_symlinks_in_scope(
@@ -868,6 +910,7 @@ static int find_symlinks_in_scope(
                 const LookupPaths *paths,
                 const UnitFileInstallInfo *i,
                 bool match_name,
+                Hashmap *link_cache,
                 UnitFileState *state) {
 
         bool same_name_link_runtime = false, same_name_link_config = false;
@@ -886,7 +929,8 @@ static int find_symlinks_in_scope(
         STRV_FOREACH(p, paths->search_path)  {
                 bool same_name_link = false;
 
-                r = find_symlinks(paths->root_dir, i, match_name, ignore_same_name, *p, &same_name_link);
+
+                r = find_symlinks(paths->root_dir, i, match_name, ignore_same_name, *p, &same_name_link, link_cache);
                 if (r < 0)
                         return r;
                 if (r > 0) {
@@ -2763,6 +2807,7 @@ int unit_file_lookup_state(
                 UnitFileScope scope,
                 const LookupPaths *paths,
                 const char *name,
+                Hashmap *link_cache,
                 UnitFileState *ret) {
 
         _cleanup_(install_context_done) InstallContext c = {};
@@ -2825,7 +2870,7 @@ int unit_file_lookup_state(
                 /* Check if any of the Alias= symlinks have been created.
                  * We ignore other aliases, and only check those that would
                  * be created by systemctl enable for this unit. */
-                r = find_symlinks_in_scope(scope, paths, i, true, &state);
+                r = find_symlinks_in_scope(scope, paths, i, true, link_cache, &state);
                 if (r < 0)
                         return r;
                 if (r > 0)
@@ -2833,7 +2878,7 @@ int unit_file_lookup_state(
 
                 /* Check if the file is known under other names. If it is,
                  * it might be in use. Report that as UNIT_FILE_INDIRECT. */
-                r = find_symlinks_in_scope(scope, paths, i, false, &state);
+                r = find_symlinks_in_scope(scope, paths, i, false, link_cache, &state);
                 if (r < 0)
                         return r;
                 if (r > 0)
@@ -2864,6 +2909,7 @@ int unit_file_get_state(
                 UnitFileState *ret) {
 
         _cleanup_(lookup_paths_free) LookupPaths paths = {};
+        _cleanup_hashmap_free_free_free_ Hashmap *link_cache = NULL;
         int r;
 
         assert(scope >= 0);
@@ -2874,7 +2920,11 @@ int unit_file_get_state(
         if (r < 0)
                 return r;
 
-        return unit_file_lookup_state(scope, &paths, name, ret);
+        r = hashmap_ensure_allocated(&link_cache, &path_hash_ops);
+        if (r < 0)
+                return r;
+
+        return unit_file_lookup_state(scope, &paths, name, link_cache, ret);
 }
 
 int unit_file_exists(UnitFileScope scope, const LookupPaths *paths, const char *name) {
@@ -3380,6 +3430,7 @@ int unit_file_get_list(
                 char **patterns) {
 
         _cleanup_(lookup_paths_free) LookupPaths paths = {};
+        _cleanup_hashmap_free_free_free_ Hashmap *link_cache = NULL;
         char **dirname;
         int r;
 
@@ -3388,6 +3439,10 @@ int unit_file_get_list(
         assert(h);
 
         r = lookup_paths_init(&paths, scope, 0, root_dir);
+        if (r < 0)
+                return r;
+
+        r = hashmap_ensure_allocated(&link_cache, &path_hash_ops);
         if (r < 0)
                 return r;
 
@@ -3432,7 +3487,7 @@ int unit_file_get_list(
                         if (!f->path)
                                 return -ENOMEM;
 
-                        r = unit_file_lookup_state(scope, &paths, de->d_name, &f->state);
+                        r = unit_file_lookup_state(scope, &paths, de->d_name, link_cache, &f->state);
                         if (r < 0)
                                 f->state = UNIT_FILE_BAD;
 

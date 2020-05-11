@@ -177,6 +177,7 @@ int unit_file_lookup_state(
                 UnitFileScope scope,
                 const LookupPaths *paths,
                 const char *name,
+                Hashmap *link_cache,
                 UnitFileState *ret);
 
 int unit_file_get_state(UnitFileScope scope, const char *root_dir, const char *filename, UnitFileState *ret);

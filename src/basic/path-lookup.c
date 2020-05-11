@@ -15,6 +15,7 @@
 #include "strv.h"
 #include "tmpfile-util.h"
 #include "user-util.h"
+#include "hashmap.h"
 
 int xdg_user_runtime_dir(char **ret, const char *suffix) {
         const char *e;
@@ -523,6 +524,7 @@ int lookup_paths_init(
                 *persistent_attached = NULL, *runtime_attached = NULL;
         bool append = false; /* Add items from SYSTEMD_UNIT_PATH before normal directories */
         _cleanup_strv_free_ char **paths = NULL;
+        Hashmap *link_cache = NULL;
         int r;
 
         assert(p);
@@ -712,6 +714,10 @@ int lookup_paths_init(
                 return r;
 
         r = patch_root_prefix_strv(paths, root);
+        if (r < 0)
+                return -ENOMEM;
+
+        r = hashmap_ensure_allocated(&link_cache, &string_hash_ops);
         if (r < 0)
                 return -ENOMEM;
 

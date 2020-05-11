@@ -1147,6 +1147,7 @@ int portable_detach(
 
         _cleanup_(lookup_paths_free) LookupPaths paths = {};
         _cleanup_set_free_ Set *unit_files = NULL, *markers = NULL;
+        _cleanup_hashmap_free_free_free_ Hashmap *link_cache = NULL;
         _cleanup_closedir_ DIR *d = NULL;
         const char *where, *item;
         struct dirent *de;
@@ -1156,6 +1157,10 @@ int portable_detach(
         assert(name_or_path);
 
         r = lookup_paths_init(&paths, UNIT_FILE_SYSTEM, LOOKUP_PATHS_SPLIT_USR, NULL);
+        if (r < 0)
+                return r;
+
+        r = hashmap_ensure_allocated(&link_cache, &path_hash_ops);
         if (r < 0)
                 return r;
 
@@ -1190,7 +1195,7 @@ int portable_detach(
                 if (r == 0)
                         continue;
 
-                r = unit_file_lookup_state(UNIT_FILE_SYSTEM, &paths, de->d_name, &state);
+                r = unit_file_lookup_state(UNIT_FILE_SYSTEM, &paths, de->d_name, link_cache, &state);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to determine unit file state of '%s': %m", de->d_name);
                 if (!IN_SET(state, UNIT_FILE_STATIC, UNIT_FILE_DISABLED, UNIT_FILE_LINKED, UNIT_FILE_RUNTIME, UNIT_FILE_LINKED_RUNTIME))
@@ -1310,6 +1315,7 @@ static int portable_get_state_internal(
         _cleanup_(lookup_paths_free) LookupPaths paths = {};
         bool found_enabled = false, found_running = false;
         _cleanup_set_free_ Set *unit_files = NULL;
+        _cleanup_hashmap_free_free_free_ Hashmap *link_cache = NULL;
         _cleanup_closedir_ DIR *d = NULL;
         const char *where;
         struct dirent *de;
@@ -1319,6 +1325,10 @@ static int portable_get_state_internal(
         assert(ret);
 
         r = lookup_paths_init(&paths, UNIT_FILE_SYSTEM, LOOKUP_PATHS_SPLIT_USR, NULL);
+        if (r < 0)
+                return r;
+
+        r = hashmap_ensure_allocated(&link_cache, &path_hash_ops);
         if (r < 0)
                 return r;
 
@@ -1355,7 +1365,7 @@ static int portable_get_state_internal(
                 if (r == 0)
                         continue;
 
-                r = unit_file_lookup_state(UNIT_FILE_SYSTEM, &paths, de->d_name, &state);
+                r = unit_file_lookup_state(UNIT_FILE_SYSTEM, &paths, de->d_name, link_cache, &state);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to determine unit file state of '%s': %m", de->d_name);
                 if (!IN_SET(state, UNIT_FILE_STATIC, UNIT_FILE_DISABLED, UNIT_FILE_LINKED, UNIT_FILE_LINKED_RUNTIME))
