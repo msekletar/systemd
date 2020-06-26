@@ -42,6 +42,17 @@ typedef enum WakeupType {
         _WAKEUP_TYPE_INVALID = -1,
 } WakeupType;
 
+typedef struct {
+        bool effective;
+
+        uint64_t max_events;
+        usec_t window_size;
+        usec_t timeout;
+
+        usec_t *past_events;
+        unsigned n_past_events;
+} EventSourceRateLimit;
+
 struct inode_data;
 
 struct sd_event_source {
@@ -68,6 +79,9 @@ struct sd_event_source {
         uint64_t prepare_iteration;
 
         sd_event_destroy_t destroy_callback;
+
+        EventSourceRateLimit *ratelimit;
+        sd_event_source *ratelimit_timeout_source;
 
         LIST_FIELDS(sd_event_source, sources);
 

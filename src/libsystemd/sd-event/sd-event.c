@@ -883,6 +883,14 @@ static void source_free(sd_event_source *s) {
         if (s->destroy_callback)
                 s->destroy_callback(s->userdata);
 
+        if (s->ratelimit_timeout_source)
+                sd_event_source_unref(s->ratelimit_timeout_source);
+
+        if (s->ratelimit) {
+                free(s->ratelimit->past_events);
+                s->ratelimit = mfree(s->ratelimit);
+        }
+
         free(s->description);
         free(s);
 }
@@ -3142,12 +3150,101 @@ static int process_inotify(sd_event *e) {
         return done;
 }
 
+static int ratelimit_timeout_callback(sd_event_source *source, usec_t usec, void *userdata) {
+        sd_event_source *s = userdata;
+        int r;
+
+         s->ratelimit->effective = false;
+
+         r = sd_event_source_set_enabled(s, SD_EVENT_ON);
+         if (r < 0)
+                 return r;
+
+         s->ratelimit_timeout_source = sd_event_source_unref(source);
+         return 0;
+}
+
+static int ratelimit_check(sd_event_source *s) {
+        usec_t beginning, *src;
+        unsigned i, j = 0;
+        int r;
+
+        assert(s);
+
+        if (!s->ratelimit)
+                return 0;
+
+        if (s->ratelimit->effective)
+                return 1;
+
+        src = s->ratelimit->past_events;
+        if (src) {
+                beginning = now(CLOCK_MONOTONIC) - s->ratelimit->window_size;
+
+                for (i = 0; i < s->ratelimit->n_past_events; i++) {
+                        if (s->ratelimit->past_events[i] < beginning) {
+                                j++;
+                                src++;
+                        }
+                }
+
+                if (j > 0) {
+                        memmove(s->ratelimit->past_events, src, (s->ratelimit->n_past_events - j) * sizeof(usec_t));
+                        s->ratelimit->n_past_events = s->ratelimit->n_past_events - j;
+
+                        r = !!reallocarray(s->ratelimit->past_events, s->ratelimit->n_past_events, sizeof(usec_t));
+                        if (!r)
+                                return -ENOMEM;
+                }
+        }
+
+        if (s->ratelimit->n_past_events + 1 <= s->ratelimit->max_events) {
+                size_t allocated = s->ratelimit->n_past_events;
+
+                if (!GREEDY_REALLOC(s->ratelimit->past_events, allocated, s->ratelimit->n_past_events+1))
+                        return -ENOMEM;
+
+                s->ratelimit->past_events[s->ratelimit->n_past_events++] = now(CLOCK_MONOTONIC);
+                return 0;
+        }
+
+        r = sd_event_source_set_enabled(s, SD_EVENT_OFF);
+        if (r < 0)
+                return -EAGAIN;
+
+        s->ratelimit->effective = true;
+
+        if (!s->ratelimit_timeout_source) {
+                         r = sd_event_add_time(s->event, &s->ratelimit_timeout_source,
+                                               CLOCK_MONOTONIC,
+                                               now(CLOCK_MONOTONIC) + s->ratelimit->timeout,
+                                               0,
+                                               ratelimit_timeout_callback,
+                                               s);
+                        if (r < 0)
+                                return r;
+                        r = sd_event_source_set_priority(s->ratelimit_timeout_source, SD_EVENT_PRIORITY_IMPORTANT);
+                        if (r < 0)
+                                return r;
+
+        }
+
+        return 1;
+}
+
 static int source_dispatch(sd_event_source *s) {
         EventSourceType saved_type;
         int r = 0;
 
         assert(s);
         assert(s->pending || s->type == SOURCE_EXIT);
+
+        r = ratelimit_check(s);
+        if (r < 0)
+                return r;
+
+        if (r == 1)
+                return 0;
 
         /* Save the event source type, here, so that we still know it after the event callback which might invalidate
          * the event. */
@@ -3687,7 +3784,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
         if (r > 0) {
                 /* There's something now, then let's dispatch it */
                 r = sd_event_dispatch(e);
-                if (r < 0)
+                if (r <= 0)
                         return r;
 
                 return 1;
@@ -3932,6 +4029,57 @@ _public_ int sd_event_source_set_floating(sd_event_source *s, int b) {
                 sd_event_ref(s->event);
                 sd_event_source_unref(s);
         }
+
+        return 1;
+}
+
+_public_ int sd_event_source_set_ratelimit(sd_event_source *s, uint64_t max_events, uint64_t window_size, uint64_t timeout) {
+        assert_return(s, -EINVAL);
+        assert_return(!s->ratelimit, 0);
+
+        s->ratelimit = new0(EventSourceRateLimit, 1);
+        if (!s->ratelimit)
+                return -ENOMEM;
+
+        s->ratelimit->max_events = max_events;
+        s->ratelimit->window_size = window_size;
+        s->ratelimit->timeout = timeout;
+
+        return 1;
+}
+
+_public_ int sd_event_source_get_ratelimit(sd_event_source *s, uint64_t *max_events, uint64_t *window_size, uint64_t *timeout) {
+        assert_return(s && max_events && window_size && timeout, -EINVAL);
+        assert_return(s->ratelimit, 0);
+
+        *max_events = s->ratelimit->max_events;
+        *window_size = s->ratelimit->window_size;
+        *timeout = s->ratelimit->timeout;
+
+        return 1;
+}
+
+_public_ int sd_event_source_is_ratelimited(sd_event_source *s) {
+        assert_return(s, -EINVAL);
+        assert_return(s->ratelimit, 0);
+
+        return s->ratelimit->effective;
+}
+
+_public_ int sd_event_source_disable_ratelimit(sd_event_source *s) {
+        assert_return(s, -EINVAL);
+        assert_return(s->ratelimit, 0);
+
+        if (s->ratelimit->effective && s->enabled == SD_EVENT_OFF) {
+                int r;
+
+                r = sd_event_source_set_enabled(s, SD_EVENT_ON);
+                if (r < 0)
+                        return r;
+        }
+
+        free(s->ratelimit->past_events);
+        s->ratelimit = mfree(s->ratelimit);
 
         return 1;
 }

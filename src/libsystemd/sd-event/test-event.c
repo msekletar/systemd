@@ -590,6 +590,51 @@ static void test_pidfd(void) {
         sd_event_unref(e);
 }
 
+static int ratelimit_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+        fprintf(stderr, "ratelimit handler called\n");
+        return 0;
+}
+
+static void test_ratelimit(void) {
+        sd_event *e = NULL;
+        sd_event_source *t = NULL;
+        int p[2] = {-1, -1};
+        uint64_t max_events, timeout, window_size;
+        unsigned i;
+
+        assert_se(sd_event_default(&e) >= 0);
+        assert_se(pipe(p) == 0);
+        assert(write(p[1], "1", 1) == 1);
+
+        assert_se(sd_event_add_io(e, &t, p[0], EPOLLIN, ratelimit_handler, NULL) >= 0);
+
+        assert_se(sd_event_source_set_ratelimit(t, 10, 5000000, 5000000) >= 0);
+        assert_se(sd_event_source_get_ratelimit(t, &max_events, &window_size, &timeout) >= 0);
+        assert_se(max_events == 10 && window_size == 5000000 && timeout == 5000000);
+
+        for (i = 0; i < max_events; i++)
+                assert_se(sd_event_run(e, -1) >= 0);
+        assert_se(sd_event_source_is_ratelimited(t) == 0);
+
+        sd_event_source_disable_ratelimit(t);
+        assert_se(sd_event_source_set_ratelimit(t, 10, 5000000, 5000000) >= 0);
+
+        for (i = 0; i < max_events+1; i++) {
+                int r;
+
+                r = sd_event_run(e, -1);
+                if (i < max_events)
+                        assert_se(r == 1);
+                else
+                        assert_se(r == 0);
+        }
+        assert_se(sd_event_source_is_ratelimited(t) == 1);
+        assert_se(sd_event_run(e, 6000000) == 1);
+
+        sd_event_source_unref(t);
+        sd_event_unref(e);
+}
+
 int main(int argc, char *argv[]) {
         test_setup_logging(LOG_INFO);
 
@@ -604,5 +649,6 @@ int main(int argc, char *argv[]) {
 
         test_pidfd();
 
+        test_ratelimit();
         return 0;
 }

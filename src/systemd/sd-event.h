@@ -158,6 +158,10 @@ int sd_event_source_set_destroy_callback(sd_event_source *s, sd_event_destroy_t 
 int sd_event_source_get_destroy_callback(sd_event_source *s, sd_event_destroy_t *ret);
 int sd_event_source_get_floating(sd_event_source *s);
 int sd_event_source_set_floating(sd_event_source *s, int b);
+int sd_event_source_set_ratelimit(sd_event_source *s, uint64_t max_events, uint64_t window_size, uint64_t timeout);
+int sd_event_source_get_ratelimit(sd_event_source *s, uint64_t *max_events, uint64_t *window_size, uint64_t *timeout);
+int sd_event_source_is_ratelimited(sd_event_source *s);
+int sd_event_source_disable_ratelimit(sd_event_source *s);
 
 /* Define helpers so that __attribute__((cleanup(sd_event_unrefp))) and similar may be used. */
 _SD_DEFINE_POINTER_CLEANUP_FUNC(sd_event, sd_event_unref);
