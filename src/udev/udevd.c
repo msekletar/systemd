@@ -49,6 +49,7 @@
 #include "netlink-util.h"
 #include "parse-util.h"
 #include "pretty-print.h"
+#include "probes.h"
 #include "proc-cmdline.h"
 #include "process-util.h"
 #include "selinux-util.h"
@@ -621,6 +622,8 @@ static int worker_spawn(Manager *manager, struct event *event) {
                 return log_error_errno(r, "Failed to fork() worker: %m");
         }
         if (r == 0) {
+                TRACE_POINT(WORKER_SPAWNED, event->dev, getpid());
+
                 /* Worker process */
                 r = worker_main(manager, worker_monitor, sd_device_ref(event->dev));
                 log_close();
@@ -1041,6 +1044,8 @@ static int on_uevent(sd_device_monitor *monitor, sd_device *dev, void *userdata)
 
         assert(manager);
 
+        TRACE_POINT(KERNEL_UEVENT_RECEIVED, dev);
+
         device_ensure_usec_initialized(dev, NULL);
 
         r = event_queue_insert(manager, dev);
@@ -1172,6 +1177,8 @@ static int synthesize_change_one(sd_device *dev, const char *syspath) {
         r = write_string_file(filename, "change", WRITE_STRING_FILE_DISABLE_BUFFER);
         if (r < 0)
                 return log_device_debug_errno(dev, r, "Failed to write 'change' to %s: %m", filename);
+
+        TRACE_POINT(SYNTHETIC_CHANGE_EVENT, dev);
         return 0;
 }
 
