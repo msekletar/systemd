@@ -23,6 +23,7 @@
 
 static const UnitActiveState state_translation_table[_SCOPE_STATE_MAX] = {
         [SCOPE_DEAD] = UNIT_INACTIVE,
+        [SCOPE_CHOWN_CGROUP] = UNIT_ACTIVATING,
         [SCOPE_RUNNING] = UNIT_ACTIVE,
         [SCOPE_ABANDONED] = UNIT_ACTIVE,
         [SCOPE_STOP_SIGTERM] = UNIT_DEACTIVATING,
@@ -494,7 +495,7 @@ static int scope_start(Unit *u) {
         if (!u->transient && !MANAGER_IS_RELOADING(u->manager))
                 return -ENOENT;
 
-        if (s->user)
+        if (s->user && unit_cgroup_delegate(u))
                 return scope_enter_chown_cgroup(s);
 
         return scope_enter_running(s);
