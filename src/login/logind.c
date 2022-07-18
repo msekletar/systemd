@@ -299,13 +299,16 @@ static int manager_enumerate_linger_users(Manager *m) {
 
         FOREACH_DIRENT(de, d, return -errno) {
                 int k;
+                User *u;
 
                 if (!dirent_is_file(de))
                         continue;
 
-                k = manager_add_user_by_name(m, de->d_name, NULL);
+                k = manager_add_user_by_name(m, de->d_name, &u);
                 if (k < 0)
                         r = log_warning_errno(k, "Couldn't add lingering user %s, ignoring: %m", de->d_name);
+
+                user_set_linger(u, true);
         }
 
         return r;
@@ -1119,7 +1122,7 @@ static int manager_startup(Manager *m) {
                 (void) seat_start(seat);
 
         HASHMAP_FOREACH(user, m->users)
-                (void) user_start(user);
+                (void) user_start(user, NULL);
 
         HASHMAP_FOREACH(session, m->sessions)
                 (void) session_start(session, NULL, NULL);

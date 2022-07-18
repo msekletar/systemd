@@ -711,7 +711,7 @@ int session_start(Session *s, sd_bus_message *properties, sd_bus_error *error) {
         if (s->started)
                 return 0;
 
-        r = user_start(s->user);
+        r = user_start(s->user, s);
         if (r < 0)
                 return r;
 
@@ -1462,6 +1462,7 @@ static const char* const session_class_table[_SESSION_CLASS_MAX] = {
         [SESSION_GREETER]     = "greeter",
         [SESSION_LOCK_SCREEN] = "lock-screen",
         [SESSION_BACKGROUND]  = "background",
+        [SESSION_NO_MANAGER]  = "no-manager",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(session_class, SessionClass);

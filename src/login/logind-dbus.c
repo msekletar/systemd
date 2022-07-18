@@ -1303,9 +1303,11 @@ static int method_set_user_linger(sd_bus_message *message, void *userdata, sd_bu
                 r = touch(path);
                 if (r < 0)
                         return r;
-
-                if (manager_add_user_by_uid(m, uid, &u) >= 0)
-                        user_start(u);
+                r = manager_add_user_by_uid(m, uid, &u);
+                if (r >= 0) {
+                        user_set_linger(u, true);
+                        user_start(u, NULL);
+                }
 
         } else {
                 User *u;
@@ -1315,8 +1317,10 @@ static int method_set_user_linger(sd_bus_message *message, void *userdata, sd_bu
                         return -errno;
 
                 u = hashmap_get(m->users, UID_TO_PTR(uid));
-                if (u)
+                if (u) {
+                        user_set_linger(u, false);
                         user_add_to_gc_queue(u);
+                }
         }
 
         return sd_bus_reply_method_return(message, NULL);

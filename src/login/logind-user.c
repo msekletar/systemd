@@ -442,7 +442,7 @@ static int user_update_slice(User *u) {
         return 0;
 }
 
-int user_start(User *u) {
+int user_start(User *u, Session *by) {
         assert(u);
 
         if (u->started && !u->stopping)
@@ -464,8 +464,11 @@ int user_start(User *u) {
         /* Set slice parameters */
         (void) user_update_slice(u);
 
-        /* Start user@UID.service */
-        user_start_service(u);
+        /* User can be started either because we are starting the session or is configured to linger. In the first case,
+         * we have a reference to the session that is requesting the start and we can can query additional metadata
+         * about it. Let's skip starting user@.service if it is explicitely requested as per session class. */
+        if (u->linger || !by || by->class != SESSION_NO_MANAGER)
+                user_start_service(u);
 
         if (!u->started) {
                 if (!dual_timestamp_is_set(&u->timestamp))
@@ -686,7 +689,7 @@ bool user_may_gc(User *u, bool drop_not_started) {
         /* Is this a user that shall stay around forever ("linger")? Before we say "no" to GC'ing for lingering users, let's check
          * if any of the three units that we maintain for this user is still around. If none of them is,
          * there's no need to keep this user around even if lingering is enabled. */
-        if (user_check_linger_file(u) > 0 && user_unit_active(u))
+        if (u->linger && user_unit_active(u))
                 return false;
 
         /* Check if our job is still pending */
@@ -868,6 +871,12 @@ void user_update_last_session_timer(User *u) {
                 log_debug("Last session of user '%s' logged out, terminating user context in %s.",
                           u->user_record->user_name,
                           FORMAT_TIMESPAN(user_stop_delay, USEC_PER_MSEC));
+}
+
+void user_set_linger(User *u, bool value) {
+        assert(u);
+
+        u->linger = value;
 }
 
 static const char* const user_state_table[_USER_STATE_MAX] = {

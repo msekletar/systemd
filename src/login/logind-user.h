@@ -46,6 +46,8 @@ struct User {
         bool started:1;       /* Whenever the user being started, has been started or is being stopped again. */
         bool stopping:1;      /* Whenever the user is being stopped or has been stopped. */
 
+        bool linger:1;
+
         LIST_HEAD(Session, sessions);
         LIST_FIELDS(User, gc_queue);
 };
@@ -57,7 +59,7 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(User *, user_free);
 
 bool user_may_gc(User *u, bool drop_not_started);
 void user_add_to_gc_queue(User *u);
-int user_start(User *u);
+int user_start(User *u, Session *by);
 int user_stop(User *u, bool force);
 int user_finalize(User *u);
 UserState user_get_state(User *u);
@@ -68,6 +70,7 @@ int user_kill(User *u, int signo);
 int user_check_linger_file(User *u);
 void user_elect_display(User *u);
 void user_update_last_session_timer(User *u);
+void user_set_linger(User *u, bool value);
 
 const char* user_state_to_string(UserState s) _const_;
 UserState user_state_from_string(const char *s) _pure_;
