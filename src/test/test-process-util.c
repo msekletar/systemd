@@ -938,6 +938,29 @@ TEST(is_reaper_process) {
         }
 }
 
+TEST(pidref_is_alive) {
+        _cleanup_(pidref_done) PidRef p = PIDREF_NULL;
+        int pidfd = -EBADF, r;
+
+        r = safe_fork("(child)", FORK_RESET_SIGNALS|FORK_DEATHSIG|FORK_CLOSE_ALL_FDS, NULL);
+        assert_se(r >= 0);
+
+        if (r == 0) {
+                /* child */
+                sleep(3600);
+                _exit(EXIT_SUCCESS);
+        }
+
+        pidfd = pidfd_open(r, 0);
+        if (pidfd < 0)
+                assert_se(ERRNO_IS_NOT_SUPPORTED(errno));
+        else
+                assert_se(pidref_set_pidfd(&p, pidfd) == 0);
+
+        assert_se(pidref_set_pid(&p, r) == 0);
+        assert_se(pidref_is_alive(&p));
+}
+
 static int intro(void) {
         log_show_color(true);
         return EXIT_SUCCESS;
