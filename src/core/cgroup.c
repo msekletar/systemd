@@ -190,6 +190,70 @@ void cgroup_context_init(CGroupContext *c) {
         };
 }
 
+int cgroup_context_add_io_device_weight_dup(CGroupContext *c, CGroupIODeviceWeight *w) {
+        _cleanup_free_ CGroupIODeviceWeight *n = NULL;
+
+        assert(c);
+        assert(w);
+
+        n = new0(CGroupIODeviceWeight, 1);
+        if (!n)
+                return -ENOMEM;
+
+        n->path = strdup(w->path);
+        if (!n->path)
+                return -ENOMEM;
+        n->weight = w->weight;
+
+        LIST_PREPEND(device_weights, c->io_device_weights, TAKE_PTR(n));
+        return 0;
+}
+
+int cgroup_context_add_io_device_limit_dup(CGroupContext *c, CGroupIODeviceLimit *l) {
+        _cleanup_free_ CGroupIODeviceLimit *n = NULL;
+
+        assert(c);
+        assert(l);
+
+        n = new0(CGroupIODeviceLimit, 1);
+        if (!l)
+                return -ENOMEM;
+
+        n->path = strdup(l->path);
+        if (!n->path)
+                return -ENOMEM;
+
+        for (CGroupIOLimitType type = 0; type < _CGROUP_IO_LIMIT_TYPE_MAX; type++)
+                n->limits[type] = l->limits[type];
+
+        LIST_PREPEND(device_limits, c->io_device_limits, TAKE_PTR(n));
+        return 0;
+}
+
+int cgroup_context_add_io_device_latency_dup(CGroupContext *c, CGroupIODeviceLatency *l) {
+        _cleanup_free_ CGroupIODeviceLatency *n = NULL;
+
+        assert(c);
+        assert(l);
+
+        n = new0(CGroupIODeviceLatency, 1);
+        if (!n)
+                return -ENOMEM;
+
+        n->path = strdup(l->path);
+        if (!n->path)
+                return -ENOMEM;
+
+        n->target_usec = l->target_usec;
+
+        LIST_PREPEND(device_latencies, c->io_device_latencies, TAKE_PTR(n));
+        return 0;
+}
+
+int cgroup_context_add_bpf_foreign_program_dup(CGroupContext *c, CGroupBPFForeignProgram *p) {
+        return cgroup_context_add_bpf_foreign_program(c, p->attach_type, p->bpffs_path);
+}
+
 int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
         struct in_addr_prefix *i;
         char *iface;
@@ -207,11 +271,6 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
 
         dst->memory_oom_group = dst->memory_oom_group;
 
-        dst->delegate = src->delegate;
-        dst->delegate_controllers = src->delegate_controllers;
-        dst->disable_controllers = src->disable_controllers;
-        dst->delegate_subgroup = src->delegate_subgroup;
-
         dst->cpu_weight = src->cpu_weight;
         dst->startup_cpu_weight = src->startup_cpu_weight;
         dst->cpu_quota_per_sec_usec = src->cpu_quota_per_sec_usec;
@@ -225,51 +284,22 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
         dst->io_weight = src->io_weight;
         dst->startup_io_weight = src->startup_io_weight;
 
-        LIST_FOREACH(device_weights, w, src->io_device_weights) {
-                _cleanup_free_ CGroupIODeviceWeight *n = NULL;
-
-                n = new0(CGroupIODeviceWeight, 1);
-                if (!n)
-                        return -ENOMEM;
-
-                n->path = strdup(w->path);
-                if (!n->path)
-                        return -ENOMEM;
-                n->weight = w->weight;
-
-                LIST_PREPEND(device_weights, dst->io_device_weights, TAKE_PTR(n));
+        LIST_FOREACH_BACKWARDS(device_weights, w, LIST_FIND_TAIL(device_weights, src->io_device_weights)) {
+                r = cgroup_context_add_io_device_weight_dup(dst, w);
+                if (r < 0)
+                        return r;
         }
 
-        LIST_FOREACH(device_limits, l, src->io_device_limits) {
-                _cleanup_free_ CGroupIODeviceLimit *n = NULL;
-
-                n = new0(CGroupIODeviceLimit, 1);
-                if (!n)
-                        return -ENOMEM;
-
-                n->path = strdup(l->path);
-                if (!n->path)
-                        return -ENOMEM;
-
-                memcpy(n->limits, l->limits, sizeof(l->limits));
-
-                LIST_PREPEND(device_limits, dst->io_device_limits, TAKE_PTR(n));
+        LIST_FOREACH_BACKWARDS(device_limits, l, LIST_FIND_TAIL(device_limits, src->io_device_limits)) {
+                r = cgroup_context_add_io_device_limit_dup(dst, l);
+                if (r < 0)
+                        return r;
         }
 
-        LIST_FOREACH(device_latencies, l, src->io_device_latencies) {
-                _cleanup_free_ CGroupIODeviceLatency *n = NULL;
-
-                n = new0(CGroupIODeviceLatency, 1);
-                if (!n)
-                        return -ENOMEM;
-
-                n->path = strdup(l->path);
-                if (!n->path)
-                        return -ENOMEM;
-
-                n->target_usec = l->target_usec;
-
-                LIST_PREPEND(device_latencies, dst->io_device_latencies, TAKE_PTR(n));
+        LIST_FOREACH_BACKWARDS(device_latencies, l, LIST_FIND_TAIL(device_latencies, src->io_device_latencies)) {
+                r = cgroup_context_add_io_device_latency_dup(dst, l);
+                if (r < 0)
+                        return r;
         }
 
         dst->default_memory_min = src->default_memory_min;
@@ -301,13 +331,13 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
         SET_FOREACH(i, src->ip_address_allow) {
                 r = in_addr_prefix_add(&dst->ip_address_allow, i);
                 if (r < 0)
-                        return -ENOMEM;
+                        return r;
         }
 
         SET_FOREACH(i, src->ip_address_deny) {
                 r = in_addr_prefix_add(&dst->ip_address_deny, i);
                 if (r < 0)
-                        return -ENOMEM;
+                        return r;
         }
 
         dst->ip_address_allow_reduced = src->ip_address_allow_reduced;
@@ -325,7 +355,7 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
                         return -ENOMEM;
         }
 
-        LIST_FOREACH(programs, l, src->bpf_foreign_programs) {
+        LIST_FOREACH_BACKWARDS(programs, l, src->bpf_foreign_programs) {
                 _cleanup_free_ CGroupBPFForeignProgram *n = NULL;
 
                 n = new0(CGroupBPFForeignProgram, 1);
@@ -344,7 +374,7 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
         SET_FOREACH(iface, src->restrict_network_interfaces) {
                 r = set_put_strdup(&dst->restrict_network_interfaces, iface);
                 if (r < 0)
-                        return -ENOMEM;
+                        return r;
         }
         dst->restrict_network_interfaces_is_allow_list = src->restrict_network_interfaces_is_allow_list;
 
@@ -354,7 +384,7 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
         dst->blockio_weight = src->blockio_weight;
         dst->startup_blockio_weight = src->startup_blockio_weight;
 
-        LIST_FOREACH(device_weights, l, src->blockio_device_weights) {
+        LIST_FOREACH_BACKWARDS(device_weights, l, src->blockio_device_weights) {
                 _cleanup_free_ CGroupBlockIODeviceWeight *n = NULL;
 
                 n = new0(CGroupBlockIODeviceWeight, 1);
@@ -413,11 +443,12 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
                 if (!n)
                         return -ENOMEM;
 
-                n->address_family = l->address_family;
-                n->ip_protocol    = l->ip_protocol;
-                n->nr_ports       = l->nr_ports;
-                n->port_min       = l->port_min;
-
+                *n = (CGroupSocketBindItem) {
+                        .address_family = l->address_family,
+                        .ip_protocol    = l->ip_protocol,
+                        .nr_ports       = l->nr_ports,
+                        .port_min       = l->port_min,
+                };
                 LIST_PREPEND(socket_bind_items, dst->socket_bind_allow, TAKE_PTR(n));
         }
 
@@ -428,26 +459,17 @@ int cgroup_context_copy(CGroupContext *dst, const CGroupContext *src) {
                 if (!n)
                         return -ENOMEM;
 
-                n->address_family = l->address_family;
-                n->ip_protocol    = l->ip_protocol;
-                n->nr_ports       = l->nr_ports;
-                n->port_min       = l->port_min;
+                *n = (CGroupSocketBindItem) {
+                        .address_family = l->address_family,
+                        .ip_protocol    = l->ip_protocol,
+                        .nr_ports       = l->nr_ports,
+                        .port_min       = l->port_min,
+                };
 
                 LIST_PREPEND(socket_bind_items, dst->socket_bind_deny, TAKE_PTR(n));
         }
 
-        dst->tasks_max = (CGroupTasksMax) {
-                .value = src->tasks_max.value,
-                .scale = src->tasks_max.scale,
-        };
-
-        dst->moom_swap = src->moom_swap;
-        dst->moom_mem_pressure = src->moom_mem_pressure;
-        dst->moom_mem_pressure_limit = src->moom_mem_pressure_limit;
-        dst->moom_preference = src->moom_preference;
-
-        dst->memory_pressure_watch = src->memory_pressure_watch;
-        dst->memory_pressure_threshold_usec = src->memory_pressure_threshold_usec;
+        dst->tasks_max = src->tasks_max;
 
         return 0;
 }
