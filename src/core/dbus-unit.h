@@ -8,7 +8,7 @@
 extern const sd_bus_vtable bus_unit_vtable[];
 extern const sd_bus_vtable bus_unit_cgroup_vtable[];
 
-void bus_unit_send_change_signal(Unit *u);
+void bus_unit_send_change_signal(Unit *u, unsigned *budget);
 void bus_unit_send_pending_change_signal(Unit *u, bool including_new);
 int bus_unit_send_pending_freezer_message(Unit *u, bool cancelled);
 void bus_unit_send_removed_signal(Unit *u);

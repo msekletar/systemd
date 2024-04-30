@@ -1113,7 +1113,7 @@ int bus_foreach_bus(
                 int (*send_message)(sd_bus *bus, void *userdata),
                 void *userdata) {
 
-        int r = 0;
+        int r = 0, ret = 0, count = 0;
 
         assert(m);
         assert(send_message);
@@ -1126,16 +1126,27 @@ int bus_foreach_bus(
                 if (sd_bus_is_ready(b) <= 0)
                         continue;
 
-                RET_GATHER(r, send_message(b, userdata));
+                r = send_message(b, userdata);
+                if (ret == 0 && r < 0)
+                        ret = r;
+                else
+                        count++;
+
+
         }
 
         /* Send to API bus, but only if somebody is subscribed */
         if (m->api_bus &&
             (sd_bus_track_count(m->subscribed) > 0 ||
-             sd_bus_track_count(subscribed2) > 0))
-                RET_GATHER(r, send_message(m->api_bus, userdata));
+             sd_bus_track_count(subscribed2) > 0)) {
+                r = send_message(m->api_bus, userdata);
+                if (ret == 0 && r < 0)
+                        ret = r;
+                else
+                        count++;
+        }
 
-        return r;
+        return ret < 0 ? ret : count;
 }
 
 void bus_track_serialize(sd_bus_track *t, FILE *f, const char *prefix) {
