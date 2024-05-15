@@ -194,9 +194,14 @@ static int send_new_signal(sd_bus *bus, void *userdata) {
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *m = NULL;
         _cleanup_free_ char *p = NULL;
         Job *j = ASSERT_PTR(userdata);
+        const char *d;
         int r;
 
         assert(bus);
+
+        r = sd_bus_get_description(bus, &d);
+        if (r == 0 && streq(d, "private-bus-connection"))
+                return 0;
 
         p = job_dbus_path(j);
         if (!p)
@@ -221,8 +226,14 @@ static int send_new_signal(sd_bus *bus, void *userdata) {
 static int send_changed_signal(sd_bus *bus, void *userdata) {
         _cleanup_free_ char *p = NULL;
         Job *j = ASSERT_PTR(userdata);
+        const char *d;
+        int r;
 
         assert(bus);
+
+        r = sd_bus_get_description(bus, &d);
+        if (r == 0 && streq(d, "private-bus-connection"))
+                return 0;
 
         p = job_dbus_path(j);
         if (!p)
