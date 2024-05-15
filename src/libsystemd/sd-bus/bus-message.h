@@ -119,6 +119,8 @@ struct sd_bus_message {
         unsigned n_header_offsets;
 
         uint64_t read_counter;
+
+        time_t rq_in;
 };
 
 static inline bool BUS_MESSAGE_NEED_BSWAP(sd_bus_message *m) {

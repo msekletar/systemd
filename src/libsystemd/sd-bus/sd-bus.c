@@ -511,6 +511,7 @@ static int synthesize_connected_signal(sd_bus *bus) {
         memmove(bus->rqueue + 1, bus->rqueue, sizeof(sd_bus_message*) * bus->rqueue_size);
         bus->rqueue[0] = bus_message_ref_queued(m, bus);
         bus->rqueue_size++;
+        m->rq_in = time(NULL);
 
         return 0;
 }
@@ -2681,6 +2682,7 @@ static int process_timeout(sd_bus *bus) {
         struct reply_callback *c;
         sd_bus_slot *slot;
         bool is_hello;
+        unsigned i;
         usec_t n;
         int r;
 
@@ -2694,6 +2696,15 @@ static int process_timeout(sd_bus *bus) {
         n = now(CLOCK_MONOTONIC);
         if (c->timeout_usec > n)
                 return 0;
+
+        for (i = 0; i < bus->rqueue_size; i++) {
+                sd_bus_message *q = bus->rqueue[i];
+
+                if (c->cookie == q->reply_cookie) {
+                        log_error("Message was put to read queue %" PRIiMAX " seconds ago.", time(NULL) - q->rq_in);
+                        assert_not_reached();
+                }
+        }
 
         r = bus_message_new_synthetic_error(
                         bus,
@@ -4464,5 +4475,6 @@ _public_ int sd_bus_enqueue_for_read(sd_bus *bus, sd_bus_message *m) {
                 return r;
 
         bus->rqueue[bus->rqueue_size++] = bus_message_ref_queued(m, bus);
+        m->rq_in = time(NULL);
         return 0;
 }
