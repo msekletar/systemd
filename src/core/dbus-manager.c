@@ -1337,10 +1337,6 @@ static int method_subscribe(sd_bus_message *message, void *userdata, sd_bus_erro
                 return r;
 
         if (sd_bus_message_get_bus(message) == m->api_bus) {
-
-                /* Note that direct bus connection subscribe by
-                 * default, we only track peers on the API bus here */
-
                 if (!m->subscribed) {
                         r = sd_bus_track_new(sd_bus_message_get_bus(message), &m->subscribed, NULL, NULL);
                         if (r < 0)
@@ -1352,6 +1348,10 @@ static int method_subscribe(sd_bus_message *message, void *userdata, sd_bus_erro
                         return r;
                 if (r == 0)
                         return sd_bus_error_set(error, BUS_ERROR_ALREADY_SUBSCRIBED, "Client is already subscribed.");
+        } else {
+                r = set_ensure_put(&m->private_buses_subscribed, NULL, sd_bus_message_get_bus(message));
+                if (r < 0)
+                        return r;
         }
 
         return sd_bus_reply_method_return(message, NULL);
@@ -1375,7 +1375,8 @@ static int method_unsubscribe(sd_bus_message *message, void *userdata, sd_bus_er
                         return r;
                 if (r == 0)
                         return sd_bus_error_set(error, BUS_ERROR_NOT_SUBSCRIBED, "Client is not subscribed.");
-        }
+        } else
+                (void) set_remove(m->private_buses_subscribed, sd_bus_message_get_bus(message));
 
         return sd_bus_reply_method_return(message, NULL);
 }
