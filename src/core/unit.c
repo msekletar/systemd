@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <sys/prctl.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "sd-id128.h"
 #include "sd-messages.h"
@@ -3499,6 +3500,8 @@ static int signal_name_owner_changed_install_handler(sd_bus_message *message, vo
         log_unit_error_errno(u, r,
                              "Unexpected error response on installing NameOwnerChanged signal match: %s",
                              bus_error_message(e, r));
+
+        (void) raise(SIGABRT);
 
         /* If we failed to install NameOwnerChanged signal, also unref the bus slot of GetNameOwner(). */
         u->match_bus_slot = sd_bus_slot_unref(u->match_bus_slot);
