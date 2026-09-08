@@ -205,7 +205,64 @@ static int get_subfunc_info(sd_device *aux_dev, sd_device **ret_parent_pcidev, c
         return 0;
 }
 
-static int get_port_specifier(sd_device *dev, char **ret) {
+static int get_physfn_port_specifier(sd_device *dev, sd_device *physfn_pcidev, char **ret) {
+        _cleanup_(sd_device_unrefp) sd_device *physfn_netdev = NULL;
+        _cleanup_closedir_ DIR *dir = NULL;
+        const char *phys_port_name;
+        char *port;
+        int r;
+
+        assert(dev);
+        assert(physfn_pcidev);
+        assert(ret);
+
+        r = device_opendir(physfn_pcidev, "net", &dir);
+        if (r < 0)
+                return r;
+
+        /* A PF can expose multiple ports or representors. Without a way to identify the VF's port,
+         * only inherit the name when there is exactly one network interface directly below the PF. */
+        FOREACH_DIRENT_ALL(de, dir, return -errno) {
+                _cleanup_free_ char *suffix = NULL;
+
+                if (dot_or_dot_dot(de->d_name))
+                        continue;
+
+                if (physfn_netdev)
+                        return -ENOTUNIQ;
+
+                suffix = path_join("net", de->d_name);
+                if (!suffix)
+                        return -ENOMEM;
+
+                r = sd_device_new_child(&physfn_netdev, physfn_pcidev, suffix);
+                if (r < 0)
+                        return r;
+
+                r = device_in_subsystem(physfn_netdev, "net");
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        return -ENODEV;
+        }
+        if (!physfn_netdev)
+                return -ENOENT;
+
+        r = device_get_sysattr_safe_string_filtered_from(dev, physfn_netdev, "phys_port_name", &phys_port_name);
+        if (r < 0)
+                return r;
+        if (isempty(phys_port_name))
+                return -ENOENT;
+
+        port = strjoin("n", phys_port_name);
+        if (!port)
+                return -ENOMEM;
+
+        *ret = port;
+        return 1;
+}
+
+static int get_port_specifier(sd_device *dev, sd_device *physfn_pcidev, char **ret) {
         const char *phys_port_name;
         unsigned dev_port;
         char *buf;
@@ -240,6 +297,16 @@ static int get_port_specifier(sd_device *dev, char **ret) {
 
                 *ret = buf;
                 return 1;
+        }
+
+        if (physfn_pcidev && naming_scheme_has(NAMING_SR_IOV_PF_PORT_NAME)) {
+                r = get_physfn_port_specifier(dev, physfn_pcidev, ret);
+                if (r >= 0)
+                        return r;
+                if (r == -ENOMEM)
+                        return log_oom_debug();
+
+                log_device_debug_errno(dev, r, "Could not inherit physical function's port name, ignoring: %m");
         }
 
         /* Then, try to use the kernel provided port index for the case when multiple ports on a single PCI
@@ -296,7 +363,13 @@ static int pci_get_onboard_index(sd_device *dev, unsigned *ret) {
         return 0;
 }
 
-static int names_pci_onboard(UdevEvent *event, sd_device *pci_dev, const char *prefix, const char *suffix) {
+static int names_pci_onboard(
+                UdevEvent *event,
+                sd_device *pci_dev,
+                sd_device *physfn_pcidev,
+                const char *prefix,
+                const char *suffix) {
+
         sd_device *dev = ASSERT_PTR(ASSERT_PTR(event)->dev);
         _cleanup_free_ char *port = NULL;
         unsigned idx = 0;  /* avoid false maybe-uninitialized warning */
@@ -310,7 +383,7 @@ static int names_pci_onboard(UdevEvent *event, sd_device *pci_dev, const char *p
         if (r < 0)
                 return r;
 
-        r = get_port_specifier(dev, &port);
+        r = get_port_specifier(dev, physfn_pcidev, &port);
         if (r < 0)
                 return r;
 
@@ -672,7 +745,13 @@ static int get_pci_slot_specifiers(
         return 0;
 }
 
-static int names_pci_slot(UdevEvent *event, sd_device *pci_dev, const char *prefix, const char *suffix) {
+static int names_pci_slot(
+                UdevEvent *event,
+                sd_device *pci_dev,
+                sd_device *physfn_pcidev,
+                const char *prefix,
+                const char *suffix) {
+
         sd_device *dev = ASSERT_PTR(ASSERT_PTR(event)->dev);
         _cleanup_free_ char *domain = NULL, *bus_and_slot = NULL, *func = NULL, *port = NULL;
         uint32_t slot = 0;  /* avoid false maybe-uninitialized warning */
@@ -686,7 +765,7 @@ static int names_pci_slot(UdevEvent *event, sd_device *pci_dev, const char *pref
         if (r < 0)
                 return r;
 
-        r = get_port_specifier(dev, &port);
+        r = get_port_specifier(dev, physfn_pcidev, &port);
         if (r < 0)
                 return r;
 
@@ -1016,8 +1095,11 @@ static int names_pci(UdevEvent *event, const char *prefix) {
         } else
                 suffix = virtfn_suffix ?: subfunc_suffix;
 
-        (void) names_pci_onboard(event, parent, prefix, suffix);
-        (void) names_pci_slot(event, parent, prefix, suffix);
+        /* Only ordinary VFs inherit the PF port name, not SFs hosted on VFs. */
+        sd_device *port_physfn = subfunc_suffix ? NULL : physfn_pcidev;
+
+        (void) names_pci_onboard(event, parent, port_physfn, prefix, suffix);
+        (void) names_pci_slot(event, parent, port_physfn, prefix, suffix);
         return 0;
 }
 
@@ -1100,7 +1182,7 @@ static int names_usb(UdevEvent *event, const char *prefix) {
         /* If the USB bus is on PCI bus, then suffix the USB specifier to the name based on the PCI bus. */
         r = sd_device_get_parent_with_subsystem_devtype(usbdev, "pci", NULL, &pcidev);
         if (r >= 0)
-                return names_pci_slot(event, pcidev, prefix, suffix);
+                return names_pci_slot(event, pcidev, /* physfn_pcidev= */ NULL, prefix, suffix);
 
         if (r != -ENOENT || !naming_scheme_has(NAMING_USB_HOST))
                 return log_device_debug_errno(usbdev, r, "Failed to get parent PCI bus: %m");
@@ -1162,7 +1244,7 @@ static int names_bcma(UdevEvent *event, const char *prefix) {
         if (r < 0)
                 return r;
 
-        return names_pci_slot(event, pcidev, prefix, suffix);
+        return names_pci_slot(event, pcidev, /* physfn_pcidev= */ NULL, prefix, suffix);
 }
 
 static int names_ccw(UdevEvent *event, const char *prefix) {
